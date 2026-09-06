@@ -224,8 +224,9 @@ class Zoo(torch.nn.Module):
         pref_history_images = pref_history_images[:1]
 
         semantic_embeds = self.get_semantic_embeds(pref_history_images)
-        for ind in enumerate([self.seed, self.seed+179]):
+        for ind in [self.seed, self.seed+179]:
             width, height = self.config.resolution
+            print(ind)
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
             image = self.inference(semantic_embeds, guidance_scale, (width, height), latent_seed_generator)
             logging.info(f'Saving at {self.config.log_dir}/sans_scanpath-latest_val_{ind}_{im_n}.png')

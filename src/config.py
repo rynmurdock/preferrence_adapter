@@ -119,7 +119,7 @@ def verify_config_validity(config):
 main_config = Config()
 
 if __name__ == "__main__":
-    # TODO use pytest instead
+    # TODO use pytest insteadf
     orig_main_config = Config()
     orig_main_config.to_json('./placeholder_conf.json')
     new_conf = Config.from_json('./placeholder_conf.json')
