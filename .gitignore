@@ -1,0 +1,14 @@
+remote_gaze_logs/**
+notes.md
+logs/**
+words_cache.txt
+*.json
+*.safetensors
+*.pt
+*.zip
+*.png
+*.jpg
+*.jpeg
+*.mat
+**/__pycache__/**
+last_epoch_ckpt copy/

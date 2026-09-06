@@ -1,0 +1,176 @@
+import numpy as np
+import torch
+import inspect
+
+from diffusers.models.transformers.transformer_flux2 import Flux2SingleTransformerBlock
+
+class SemanticFlux2SingleTransformerBlock(Flux2SingleTransformerBlock):
+    def __init__(
+        self, *args, **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        rotary_emb: tuple[torch.Tensor, torch.Tensor] | None = None,
+        joint_attention_kwargs: dict[str,] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        norm_hidden_states = self.norm(hidden_states)
+        joint_attention_kwargs = joint_attention_kwargs or {}
+        attn_output = self.attn(
+            hidden_states=norm_hidden_states,
+            image_rotary_emb=rotary_emb,
+            **joint_attention_kwargs,
+        )
+        if hidden_states.dtype == torch.float16:
+            hidden_states = hidden_states.clip(-65504, 65504)
+
+        hidden_states = hidden_states + attn_output
+        return hidden_states
+
+
+class SemanticEmbedsKlein(torch.nn.Module):
+    def __init__(self, transformer):
+        super().__init__()
+        self.dtype = transformer.dtype
+        self.device = transformer.device
+        self.orig_transformer = transformer
+        out_dim = 7680
+        # TODO take in siglip config's embed size through its config
+        self.adapter = torch.nn.ModuleList([
+                SemanticFlux2SingleTransformerBlock(
+                    dim=128,
+                    num_attention_heads=4,
+                    attention_head_dim=128,
+                    mlp_ratio=2,
+                    eps=1e-6,
+                    bias=False,
+                ) # TODO look at i1 for reasonable depth/size
+            for _ in range(3)])
+
+        self.in_linear = torch.nn.Linear(768, 128)
+        self.out_linear = torch.nn.Linear(128, out_dim)
+    
+    def forward(self, *args, **kwargs):
+        # default to using our adapter
+        vanilla_forward = True if kwargs.get('vanilla_forward', False) else False
+        prompt_embeds_attn_mask = kwargs.get('prompt_embeds_attn_mask')
+        if not vanilla_forward:
+            # single stream over enc hidden states (semantic embeddings)
+            sem_emb_rotary_embeds = self.orig_transformer.pos_embed(kwargs['txt_ids'])
+            hidden_states = self.in_linear(kwargs['encoder_hidden_states'])
+            for a in self.adapter:
+                hidden_states = a(
+                    hidden_states=hidden_states,
+                    rotary_emb=sem_emb_rotary_embeds,
+                    joint_attention_kwargs={'attention_mask': prompt_embeds_attn_mask},
+                    )
+            hidden_states = self.out_linear(hidden_states)
+            kwargs['encoder_hidden_states'] = hidden_states
+        if 'vanilla_forward' in kwargs: kwargs.pop('vanilla_forward')
+        if 'prompt_embeds_attn_mask' in kwargs: kwargs.pop('prompt_embeds_attn_mask')
+        return self.orig_transformer(*args, **kwargs)
+
+def add_single_stream_embedding_adapter(transformer):
+    new_transformer = SemanticEmbedsKlein(transformer)
+    new_transformer.config = transformer.config
+    new_transformer.cache_context = transformer.cache_context
+    return new_transformer
+
+
+
+# Copied from diffusers.pipelines.flux2.pipeline_flux2.compute_empirical_mu
+def compute_empirical_mu(image_seq_len: int, num_steps: int) -> float:
+    a1, b1 = 8.73809524e-05, 1.89833333
+    a2, b2 = 0.00016927, 0.45666666
+
+    if image_seq_len > 4300:
+        mu = a2 * image_seq_len + b2
+        return float(mu)
+
+    m_200 = a2 * image_seq_len + b2
+    m_10 = a1 * image_seq_len + b1
+
+    a = (m_200 - m_10) / 190.0
+    b = m_200 - 200.0 * a
+    mu = a * num_steps + b
+
+    return float(mu)
+
+# Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.retrieve_timesteps
+def retrieve_timesteps(
+    scheduler,
+    num_inference_steps: int | None = None,
+    device: str | torch.device | None = None,
+    timesteps: list[int] | None = None,
+    sigmas: list[float] | None = None,
+    **kwargs,
+):
+    r"""
+    Calls the scheduler's `set_timesteps` method and retrieves timesteps from the scheduler after the call. Handles
+    custom timesteps. Any kwargs will be supplied to `scheduler.set_timesteps`.
+
+    Args:
+        scheduler (`SchedulerMixin`):
+            The scheduler to get timesteps from.
+        num_inference_steps (`int`):
+            The number of diffusion steps used when generating samples with a pre-trained model. If used, `timesteps`
+            must be `None`.
+        device (`str` or `torch.device`, *optional*):
+            The device to which the timesteps should be moved to. If `None`, the timesteps are not moved.
+        timesteps (`list[int]`, *optional*):
+            Custom timesteps used to override the timestep spacing strategy of the scheduler. If `timesteps` is passed,
+            `num_inference_steps` and `sigmas` must be `None`.
+        sigmas (`list[float]`, *optional*):
+            Custom sigmas used to override the timestep spacing strategy of the scheduler. If `sigmas` is passed,
+            `num_inference_steps` and `timesteps` must be `None`.
+
+    Returns:
+        `tuple[torch.Tensor, int]`: A tuple where the first element is the timestep schedule from the scheduler and the
+        second element is the number of inference steps.
+    """
+    if timesteps is not None and sigmas is not None:
+        raise ValueError("Only one of `timesteps` or `sigmas` can be passed. Please choose one to set custom values")
+    if timesteps is not None:
+        accepts_timesteps = "timesteps" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accepts_timesteps:
+            raise ValueError(
+                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
+                f" timestep schedules. Please check whether you are using the correct scheduler."
+            )
+        scheduler.set_timesteps(timesteps=timesteps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    elif sigmas is not None:
+        accept_sigmas = "sigmas" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accept_sigmas:
+            raise ValueError(
+                f"The current scheduler class {scheduler.__class__}'s `set_timesteps` does not support custom"
+                f" sigmas schedules. Please check whether you are using the correct scheduler."
+            )
+        scheduler.set_timesteps(sigmas=sigmas, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    else:
+        scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+    return timesteps, num_inference_steps
+
+
+
+def get_inf_timesteps(scheduler, latents, num_inference_steps, device, sigmas=None):
+    sigmas = np.linspace(1.0, 1 / num_inference_steps, num_inference_steps) if sigmas is None else sigmas
+    if hasattr(scheduler.config, "use_flow_sigmas") and scheduler.config.use_flow_sigmas:
+        sigmas = None
+    image_seq_len = latents.shape[1]
+    mu = compute_empirical_mu(image_seq_len=image_seq_len, num_steps=num_inference_steps)
+    timesteps, num_inference_steps = retrieve_timesteps(
+        scheduler,
+        num_inference_steps,
+        device,
+        sigmas=sigmas,
+        mu=mu,
+    )
+    return timesteps
