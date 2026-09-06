@@ -13,15 +13,16 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = None
-    lora_path = None # '/home/ryn_mote/Misc/eye_experiments/gaze-conditioned-diffusion/logs/apostatising_Laennec_Phiona/53000_ckpt/pytorch_lora_weights.safetensors'
+    load_path = None
+
     seed: int = 13
+    k: int = 16
 
-    k: int = 4
-
-    lora_rank: int = 128
+    lora_rank: int = 16
     sample_teacher: bool = True
 
-    just_inf_timesteps: bool = False
+    just_inf_timesteps: bool = True
+
     # just_inf_timesteps will automatically already shift, 
     #   so this does nothing if just_inf_timesteps=False
     shift_timesteps_resolution: bool = True
@@ -31,9 +32,13 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 3
-    lr: float = 5e-6
+    batch_size: int = 8
+    lr: float = 1e-4
 
+    # TODO cut to length of content, not 8
+
+    # mainly acts as attention sink, keeping in-domain
+    use_prompt: str = 'The scene.'
     # teacher gives the input image back in most cases
     #   sans instruction
     teacher_use_prompt: str = ''
@@ -43,9 +48,8 @@ class Config:
     max_steps: int = 100_000
     max_val_steps: int = 64
 
-    # this seems to break after d5b46746eb7f329c793d65b76a09c96ef9bfdd97
-    # likely due to dynamic shapes being borked on some torch versions
-    do_compile: bool = False
+    # this may break with LoRA teacher switching on/off
+    do_compile: bool = True
     device: str = 'cuda:0'
     
     # specifically for *mixed precision*

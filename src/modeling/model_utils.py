@@ -34,6 +34,8 @@ class SemanticFlux2SingleTransformerBlock(Flux2SingleTransformerBlock):
 class SemanticEmbedsKlein(torch.nn.Module):
     def __init__(self, transformer):
         super().__init__()
+        self.cached_prompt = None
+
         self.dtype = transformer.dtype
         self.device = transformer.device
         self.orig_transformer = transformer
@@ -47,30 +49,45 @@ class SemanticEmbedsKlein(torch.nn.Module):
                     mlp_ratio=2,
                     eps=1e-6,
                     bias=False,
-                ) # TODO look at i1 for reasonable depth/size
-            for _ in range(3)])
+                )
+            for _ in range(3)]) # following i1 (https://arxiv.org/abs/2606.11289) 
+                                #     for reasonable depth+1
 
         self.in_linear = torch.nn.Linear(768, 128)
-        self.out_linear = torch.nn.Linear(128, out_dim)
-    
+        self.out_linear = torch.nn.Linear(128, out_dim)            
+
     def forward(self, *args, **kwargs):
         # default to using our adapter
         vanilla_forward = True if kwargs.get('vanilla_forward', False) else False
         prompt_embeds_attn_mask = kwargs.get('prompt_embeds_attn_mask')
+        cached_prompt = self.cached_prompt
         if not vanilla_forward:
             # single stream over enc hidden states (semantic embeddings)
-            sem_emb_rotary_embeds = self.orig_transformer.pos_embed(kwargs['txt_ids'])
+            txt_ids = kwargs['txt_ids']
+            sem_emb_rotary_embeds = self.orig_transformer.pos_embed(txt_ids)
             hidden_states = self.in_linear(kwargs['encoder_hidden_states'])
             for a in self.adapter:
                 hidden_states = a(
                     hidden_states=hidden_states,
-                    rotary_emb=sem_emb_rotary_embeds,
+                    rotary_emb=sem_emb_rotary_embeds, # TODO just use max truncate here?
+                    # TODO cut to length of content, not 8
                     joint_attention_kwargs={'attention_mask': prompt_embeds_attn_mask},
                     )
             hidden_states = self.out_linear(hidden_states)
+            if not cached_prompt is None:
+                hidden_states = torch.cat([cached_prompt.expand(len(hidden_states), -1, -1)[:, :8], 
+                    hidden_states], 1)
+                kwargs['txt_ids'] = self.cached_txt_ids[:, :8+self.k]
+                if not kwargs['joint_attention_kwargs'] is None:
+                    att_mask = kwargs['joint_attention_kwargs']['attention_mask']
+                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :8] > 0, 
+                        att_mask], 1)
+                    kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
             kwargs['encoder_hidden_states'] = hidden_states
+
         if 'vanilla_forward' in kwargs: kwargs.pop('vanilla_forward')
         if 'prompt_embeds_attn_mask' in kwargs: kwargs.pop('prompt_embeds_attn_mask')
+        if 'cached_prompt' in kwargs: kwargs.pop('cached_prompt')
         return self.orig_transformer(*args, **kwargs)
 
 def add_single_stream_embedding_adapter(transformer):

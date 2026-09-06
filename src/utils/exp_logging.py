@@ -30,8 +30,8 @@ def setup_log_dir(config):
     codename = rng_proper_codename().replace(' ', '_') if not config.exp_name else config.exp_name
 
     # jobs inherit their last name by checkpoint lineage
-    if config.lora_path or config.transformer_model_path:
-        parent = config.lora_path or config.transformer_model_path
+    if config.load_path or config.transformer_model_path:
+        parent = f'{config.load_path}/pytorch_lora_weights.safetensors' or config.transformer_model_path
         # [-2] as we have root/<word_name_lastname>/step_ckpt/
         suffix = os.path.dirname(parent).split('_')[-2].split('/')[-2]
         l_name = codename.split('_')

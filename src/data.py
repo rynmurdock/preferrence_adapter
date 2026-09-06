@@ -196,7 +196,7 @@ class ImageFolderSample(torch.utils.data.Dataset):
         self.data_path = os.path.dirname(data_path)
 
     def loader(self, img_p):
-        im = Image.open(img_p)
+        im = Image.open(img_p).convert('RGB')
         return im
 
     def __len__(self):

@@ -1,3 +1,4 @@
+import os
 import torch
 import logging
 from tqdm import tqdm
@@ -46,13 +47,10 @@ def get_loss(model, embeds, images, config, dtype=None,):
         zeroing_mask = torch.rand((embeds.shape[0], embeds.shape[1])) < .3
         embeds[zeroing_mask] = 0
 
-        embeds_ids = model.pipe._prepare_text_ids(embeds[:, :]).to(model.device)
-        prompt_embeds_attn_mask = torch.nn.utils.rnn.pad_sequence([torch.ones_like(l) for l in embeds.sum(-1)], 
-                                                            batch_first=True, ).squeeze(1) > 0
+        prompt_embeds_attn_mask = torch.nn.utils.rnn.pad_sequence(
+            [torch.ones_like(l) for l in embeds.sum(-1)], batch_first=True, ).squeeze(1) > 0
+        embeds_ids = model.pipe._prepare_text_ids(embeds).to(model.device)
 
-        # NOTE because x0 & hint are the same size, 
-        #   latents_there_mask can mask attn over both the teacher's given gt
-        #   and the student's scanpath hint when we repeat it along the seq dim       
         x0, typical_image_ids, latents_there_mask = ids_encode_pad_mask_images(model, 
                                                                        images, model.config.dtype)
 
@@ -82,7 +80,8 @@ def get_loss(model, embeds, images, config, dtype=None,):
         latents = sigma * noise + (1 - sigma) * x0
 
         if sample_teacher:
-            model.pipe.transformer.orig_transformer.disable_lora()
+            if config.lora_rank:
+                model.pipe.transformer.orig_transformer.disable_lora()
             
             latent_model_input = torch.cat([latents, x0], dim=1).to(model.pipe.transformer.dtype)
             latent_image_ids = torch.cat([typical_image_ids, typical_image_ids], dim=1)
@@ -91,11 +90,13 @@ def get_loss(model, embeds, images, config, dtype=None,):
                        prompt_embeds=model.pipe.cached_teacher_prompt,
                        txt_ids=model.pipe.cached_teacher_txt_ids,
                        latents_attention_mask=latents_there_mask.repeat(1, 2, 1),
-                       prompt_embeds_attn_mask=torch.ones_like(model.pipe.cached_teacher_txt_ids).sum(-1).expand(latents_there_mask.shape[0], -1),
+                       prompt_embeds_attn_mask=torch.ones_like(
+                           model.pipe.cached_teacher_txt_ids).sum(-1).expand(latents_there_mask.shape[0], -1),
                        vanilla_forward=True,
                        )
             teacher_noise_pred = teacher_noise_pred[:, : latents.size(1) :]
-            model.pipe.transformer.orig_transformer.enable_lora()
+            if config.lora_rank:
+                model.pipe.transformer.orig_transformer.enable_lora()
 
 
     with torch.autocast(device_type='cuda', enabled=not config.quantize_model, dtype=dtype):
@@ -129,6 +130,8 @@ def get_loss(model, embeds, images, config, dtype=None,):
 class Zoo(torch.nn.Module):
     def __init__(self, pipe, device, dtype, seed=0, config=None) -> None:
         super().__init__()
+        self.total_steps = 0
+
         self.pipe = pipe
         self.seed = seed
         # NOTE: dtype is the mixed dtype; transformer is still in float32
@@ -140,11 +143,6 @@ class Zoo(torch.nn.Module):
         ckpt = "google/siglip2-base-patch16-384"
         self.semantic_encoder_model = AutoModel.from_pretrained(ckpt).eval().to(self.device)
         self.semantic_encoder_processor = AutoProcessor.from_pretrained(ckpt)
-
-        self.pipe.transformer = add_single_stream_embedding_adapter(
-            self.pipe.transformer).to(self.device)
-
-
 
     @torch.no_grad()
     def get_semantic_embeds(self, batch_images: list[list]):
@@ -180,10 +178,11 @@ class Zoo(torch.nn.Module):
                 encoder_hidden_states=prompt_embeds,
                 txt_ids=txt_ids,
                 img_ids=image_ids,  # B, image_seq_len, 4
-                joint_attention_kwargs={'attention_mask':attention_mask,},
+                joint_attention_kwargs={'attention_mask': attention_mask,},
                 prompt_embeds_attn_mask=prompt_embeds_attn_mask,
                 return_dict=False,
                 vanilla_forward=vanilla_forward,
+                cached_prompt=self.pipe.cached_prompt,
         )[0]
         return velocity
 
@@ -219,7 +218,7 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=1, im_n=0,):
+    def do_qual_val(self, pref_history_images, guidance_scale=1,):
         # we do batch_size=1 evaluation for now
         pref_history_images = pref_history_images[:1]
 
@@ -228,9 +227,10 @@ class Zoo(torch.nn.Module):
             width, height = self.config.resolution
             print(ind)
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
-            image = self.inference(semantic_embeds, guidance_scale, (width, height), latent_seed_generator)
-            logging.info(f'Saving at {self.config.log_dir}/sans_scanpath-latest_val_{ind}_{im_n}.png')
-            image.save(f'{self.config.log_dir}/latest_val_{ind}_{im_n}.png')
+            image = self.inference(semantic_embeds, guidance_scale, (width, height), 
+                                   latent_seed_generator)
+            logging.info(f'Saving at {self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
+            image.save(f'{self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
 
     
     @torch.no_grad()
@@ -251,10 +251,10 @@ class Zoo(torch.nn.Module):
 
                 loss, loss_logging_dict = get_loss(self, embeds, target_images, 
                                                    config=self.config,)
-                self.do_qual_val(batch['sample_pixels'])
                 losses.append(loss.item())
                 if index >= max_val_steps:
                     return sum(losses) / len(losses)
+            self.do_qual_val(batch['sample_pixels'], )
             return sum(losses) / len(losses)
 
 def get_prompt_embeds_txt_ids(pipe, prompt, device, dtype=torch.float32):
@@ -289,14 +289,18 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
                 "to_qkv_mlp_proj.0",                            # single-stream fused qkv+mlp-in
                 "to_out.0",                                     # single-stream fused attn-out+mlp-out
             ]
-    if config.lora_path:
-        transformer.load_lora_adapter(f'{config.lora_path}',
+    if config.load_path:
+        if config.lora_rank:
+            transformer.load_lora_adapter(f'{config.load_path}/pytorch_lora_weights.safetensors',
                                       prefix=None,
                                       adapter_name='default',
                                       target_modules=target_modules
-                                      )
-        transformer.set_adapters('default', 1)
-        
+                                      )        
+            transformer.set_adapters('default', 1)
+
+        adapter_states = torch.load(f'{os.path.dirname(config.load_path)}/adapter.pt')
+        transformer.load_state_dict(adapter_states, strict=False)
+
     elif config.lora_rank:
         # we need a new lora as we aren't loading one
         # inplace operation
@@ -324,20 +328,36 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     assert not any([p.device != torch.device('cuda:0') for p in pipe.vae.parameters()]), [n for n, p in pipe.vae.named_parameters() if p.device != torch.device('cuda:0')]
 
     pipe.cached_teacher_prompt, pipe.cached_teacher_txt_ids = None, None
+    pipe.cached_prompt, pipe.cached_txt_ids = None, None
+
+    if isinstance(config.use_prompt, str):
+        logging.info('Caching prompt.')
+        pipe.text_encoder = pipe.text_encoder.to(config.device)
+        pipe.cached_prompt, pipe.cached_txt_ids = get_prompt_embeds_txt_ids(pipe,
+                                                                            config.teacher_use_prompt,
+                                                                            config.device,)
 
     if isinstance(config.teacher_use_prompt, str):
         logging.info('Caching prompt for our teacher.')
-        pipe.text_encoder = pipe.text_encoder.to(config.device)
+        if not pipe.cached_prompt is None:
+            pipe.text_encoder = pipe.text_encoder.to(config.device)
         pipe.cached_teacher_prompt, pipe.cached_teacher_txt_ids = get_prompt_embeds_txt_ids(pipe,
                                                                                             config.teacher_use_prompt,
                                                                                             config.device,)
     del pipe.text_encoder
     torch.cuda.empty_cache()
+
+    pipe.transformer = add_single_stream_embedding_adapter(pipe.transformer).to(device)
+
     pipe.transformer = pipe.transformer.to(device)
 
     if do_compile:
         pipe.transformer = torch.compile(pipe.transformer)
-    
+
+    pipe.transformer.cached_prompt = pipe.cached_prompt
+    pipe.transformer.cached_txt_ids = pipe.cached_txt_ids
+    pipe.transformer.k = config.k
+
     model = Zoo(pipe, config.device, config.dtype, seed, config=config).to(device)
     return model
 
@@ -346,5 +366,5 @@ def get_optimizer_and_lr_sched(params, lr, config):
         optimizer = bnb.optim.PagedAdamW8bit(params, lr=lr)
     else:
         optimizer = torch.optim.AdamW(params, lr=lr)
-    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, total_iters=1)
+    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, end_factor=.1, total_iters=100)
     return optimizer, scheduler
