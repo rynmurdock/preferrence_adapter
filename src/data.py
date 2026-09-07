@@ -297,15 +297,16 @@ def remove_empty_dirs(path_to_folders):
 def get_dataloader(data_path, val_data_path, 
                    batch_size, num_workers, k, demographic_vocab=None):
     val_batch_size = batch_size
-    if demographic_vocab is None:
-        raise ValueError("Provide demographic vocabulary")
+
+    # TODO add back!
+    # if demographic_vocab is None:
+    #     raise ValueError("Provide demographic vocabulary")
+
     # we can die if we don't clean empty folders.
     remove_empty_dirs(data_path)
     
     train_data = get_dataset(data_path, k=k, demographic_vocab=demographic_vocab)
-    val_data = get_dataset(val_data_path, 
-                           k=k,
-                           demographic_vocab=train_data.demographic_vocab)
+    val_data = get_dataset(val_data_path, k=k, demographic_vocab=train_data.demographic_vocab)
 
     # with pamela data, we have separate train/val sets
     # # subset specific "classes" (subfolders that contain groups of preferred images)

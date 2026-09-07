@@ -16,7 +16,8 @@ class Config:
     load_path = None
 
     seed: int = 13
-    k: int = 16
+    # TODO ensure we have even number (pad) so we reach RoPE constraints?
+    k: int = 5
 
     lora_rank: int = 16
     sample_teacher: bool = True

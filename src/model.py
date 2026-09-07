@@ -144,6 +144,15 @@ class Zoo(torch.nn.Module):
         self.semantic_encoder_model = AutoModel.from_pretrained(ckpt).eval().to(self.device)
         self.semantic_encoder_processor = AutoProcessor.from_pretrained(ckpt)
 
+    def enrich_with_preference_embedding(self, embeds, scores):
+        # we add a timestep-pos-styled embedding to each semantic embedding
+        #   to specify the preference for given images to the model
+
+        # TODO can make improvements here
+        embeds = embeds + self.pipe.transformer.score_embedder(scores)
+        return embeds
+        
+
     @torch.no_grad()
     def get_semantic_embeds(self, batch_images: list[list]):
         embeds_batch = []
@@ -189,7 +198,7 @@ class Zoo(torch.nn.Module):
     @torch.no_grad()
     def inference(self, 
                   embeds, 
-                  guidance_scale=1,
+                  guidance_scale=5,
                   width_height=None, 
                   generator=None):
         assert embeds.shape[0] == 1, f'Must be batch size of 1. {embeds.shape=}'
@@ -218,19 +227,43 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=1,):
+    def do_qual_val(self, pref_history_images, guidance_scale=5, 
+                    sample_scores=None, target_scores=None):        
         # we do batch_size=1 evaluation for now
         pref_history_images = pref_history_images[:1]
-
         semantic_embeds = self.get_semantic_embeds(pref_history_images)
+        target_embed = semantic_embeds.new_zeros(len(semantic_embeds), 1, semantic_embeds.shape[-1])
+        semantic_embeds = torch.cat([target_embed, semantic_embeds], 1)
+
+        # TODO use sample & target scores
+        if not sample_scores:
+            logging.warning(f'No scores provided -- giving 5s on all')
+            scores = torch.tensor([5,]*semantic_embeds.shape[1])
+        else:
+            logging.warning(
+                'Scores provided but not implemented'
+                '             -- giving 5s on all')
+
+        semantic_embeds = self.enrich_with_preference_embedding(semantic_embeds, scores)
         for ind in [self.seed, self.seed+179]:
             width, height = self.config.resolution
-            print(ind)
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
             image = self.inference(semantic_embeds, guidance_scale, (width, height), 
                                    latent_seed_generator)
             logging.info(f'Saving at {self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
             image.save(f'{self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
+
+    def process_inputs(self, batch):
+        # target score goes first
+        # TODO for varying prompts, we should put the 
+        #   prompt after the embeddings to keep 0th instance as target score
+        embeds = self.get_semantic_embeds(batch['sample_pixels'])
+        # target embed only holds our score embedding for the to-predict image
+        target_embed = embeds.new_zeros(len(embeds), 1, embeds.shape[-1])
+        embeds = torch.cat([target_embed, embeds], 1)
+        scores = torch.cat([batch['target_scores'], batch['sample_scores']], 1)
+        embeds = self.enrich_with_preference_embedding(embeds, scores)
+        return embeds
 
     
     @torch.no_grad()
@@ -246,16 +279,16 @@ class Zoo(torch.nn.Module):
                 if batch is None:
                     continue
 
-                embeds = self.get_semantic_embeds(batch['sample_pixels'])
                 target_images = batch['target_pixels']
-
+                embeds = self.process_inputs(batch)
                 loss, loss_logging_dict = get_loss(self, embeds, target_images, 
                                                    config=self.config,)
                 losses.append(loss.item())
                 if index >= max_val_steps:
                     return sum(losses) / len(losses)
-            self.do_qual_val(batch['sample_pixels'], )
+            self.do_qual_val(batch['sample_pixels'])
             return sum(losses) / len(losses)
+
 
 def get_prompt_embeds_txt_ids(pipe, prompt, device, dtype=torch.float32):
     p, t_ids = pipe.encode_prompt(prompt=prompt, device=device,)
@@ -297,9 +330,6 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
                                       target_modules=target_modules
                                       )        
             transformer.set_adapters('default', 1)
-
-        adapter_states = torch.load(f'{os.path.dirname(config.load_path)}/adapter.pt')
-        transformer.load_state_dict(adapter_states, strict=False)
 
     elif config.lora_rank:
         # we need a new lora as we aren't loading one
@@ -348,7 +378,6 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     torch.cuda.empty_cache()
 
     pipe.transformer = add_single_stream_embedding_adapter(pipe.transformer).to(device)
-
     pipe.transformer = pipe.transformer.to(device)
 
     if do_compile:
@@ -359,6 +388,10 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     pipe.transformer.k = config.k
 
     model = Zoo(pipe, config.device, config.dtype, seed, config=config).to(device)
+    # we load the LoRA early but apply the adapter in __init__
+    if config.load_path:
+        adapter_states = torch.load(f'{os.path.dirname(config.load_path)}/adapter.pt')
+        transformer.load_state_dict(adapter_states, strict=False)
     return model
 
 def get_optimizer_and_lr_sched(params, lr, config):

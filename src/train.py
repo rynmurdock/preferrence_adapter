@@ -106,7 +106,7 @@ Training {len(trained_params)} torch modules
 
             images = batch['target_pixels']
             try:
-                embeds = model.get_semantic_embeds(batch['sample_pixels'])
+                embeds = model.process_inputs(batch)
             except Exception as e:
                 logging.warning(f'{e} when getting semantic embeddings')
 

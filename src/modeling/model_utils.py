@@ -4,6 +4,64 @@ import inspect
 
 from diffusers.models.transformers.transformer_flux2 import Flux2SingleTransformerBlock
 
+
+class ScoreEmbedding(torch.nn.Module):
+    def __init__(
+        self,
+        in_channels: int = 768,
+        time_embed_dim: int = 768,
+        out_dim: int = 768,
+        post_act_fn: str | None = None,
+        cond_proj_dim=None,
+        sample_proj_bias=True,
+    ):
+        super().__init__()
+
+        self.linear_1 = torch.nn.Linear(in_channels, time_embed_dim, sample_proj_bias)
+
+        if cond_proj_dim is not None:
+            self.cond_proj = torch.nn.Linear(cond_proj_dim, in_channels, bias=False)
+        else:
+            self.cond_proj = None
+
+        self.act = torch.nn.SiLU()
+
+        if out_dim is not None:
+            time_embed_dim_out = out_dim
+        else:
+            time_embed_dim_out = time_embed_dim
+        self.linear_2 = torch.nn.Linear(time_embed_dim, time_embed_dim_out, sample_proj_bias)
+
+        if post_act_fn is None:
+            self.post_act = None
+        else:
+            self.post_act = torch.nn.SiLU()
+
+        # we use one-hot to make our own linear,
+        #   as nn.Embedding is apt to break on distributed training
+        self.embed_linear = torch.nn.Linear(5, out_dim)
+
+    # TODO infer device, not default to cuda
+    def forward(self, score, device='cuda', condition=None):
+        # TODO don't snap to int
+        # score-1 so we are 0-indexed.
+        score_one_hot = torch.nn.functional.one_hot(torch.Tensor(score-1).to(torch.long), 
+                                                    num_classes=5).to(device, torch.float)
+        sample = self.embed_linear(score_one_hot)
+        if condition is not None:
+            sample = sample + self.cond_proj(condition)
+        sample = self.linear_1(sample)
+
+        if self.act is not None:
+            sample = self.act(sample)
+
+        sample = self.linear_2(sample)
+
+        if self.post_act is not None:
+            sample = self.post_act(sample)
+        return sample
+
+
 class SemanticFlux2SingleTransformerBlock(Flux2SingleTransformerBlock):
     def __init__(
         self, *args, **kwargs
@@ -54,13 +112,17 @@ class SemanticEmbedsKlein(torch.nn.Module):
                                 #     for reasonable depth+1
 
         self.in_linear = torch.nn.Linear(768, 128)
-        self.out_linear = torch.nn.Linear(128, out_dim)            
+        self.out_linear = torch.nn.Linear(128, out_dim)       
+
+        self.score_embedder = ScoreEmbedding()
+
 
     def forward(self, *args, **kwargs):
         # default to using our adapter
         vanilla_forward = True if kwargs.get('vanilla_forward', False) else False
         prompt_embeds_attn_mask = kwargs.get('prompt_embeds_attn_mask')
         cached_prompt = self.cached_prompt
+
         if not vanilla_forward:
             # single stream over enc hidden states (semantic embeddings)
             txt_ids = kwargs['txt_ids']
@@ -77,7 +139,7 @@ class SemanticEmbedsKlein(torch.nn.Module):
             if not cached_prompt is None:
                 hidden_states = torch.cat([cached_prompt.expand(len(hidden_states), -1, -1)[:, :8], 
                     hidden_states], 1)
-                kwargs['txt_ids'] = self.cached_txt_ids[:, :8+self.k]
+                kwargs['txt_ids'] = self.cached_txt_ids[:, :8+self.k+1]
                 if not kwargs['joint_attention_kwargs'] is None:
                     att_mask = kwargs['joint_attention_kwargs']['attention_mask']
                     att_mask = torch.cat([torch.ones_like(att_mask)[:, :8] > 0, 
@@ -88,14 +150,16 @@ class SemanticEmbedsKlein(torch.nn.Module):
         if 'vanilla_forward' in kwargs: kwargs.pop('vanilla_forward')
         if 'prompt_embeds_attn_mask' in kwargs: kwargs.pop('prompt_embeds_attn_mask')
         if 'cached_prompt' in kwargs: kwargs.pop('cached_prompt')
-        return self.orig_transformer(*args, **kwargs)
+
+        out = self.orig_transformer(*args, **kwargs)
+        return out
 
 def add_single_stream_embedding_adapter(transformer):
     new_transformer = SemanticEmbedsKlein(transformer)
+
     new_transformer.config = transformer.config
     new_transformer.cache_context = transformer.cache_context
     return new_transformer
-
 
 
 # Copied from diffusers.pipelines.flux2.pipeline_flux2.compute_empirical_mu
