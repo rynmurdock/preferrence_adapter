@@ -17,9 +17,9 @@ class Config:
 
     seed: int = 13
     # TODO ensure we have even number (pad) so we reach RoPE constraints?
-    k: int = 5
+    k: int = 16
 
-    lora_rank: int = 16
+    lora_rank: int = 32
     sample_teacher: bool = True
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
@@ -32,6 +32,7 @@ class Config:
 
     ### Hparams
     batch_size: int = 4
+    # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
     lr: float = 1e-4
 
     # TODO cut to length of content, not 8
