@@ -61,7 +61,7 @@ def get_loss(model, embeds, images, config, dtype=None,):
             timesteps = timesteps[k]
         else:
             u = compute_density_for_timestep_sampling(
-                weighting_scheme='logit_normal',
+                weighting_scheme='uniform',
                 batch_size=x0.shape[0],
                 logit_mean=0,
                 logit_std=1,
@@ -390,7 +390,7 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     model = Zoo(pipe, config.device, config.dtype, seed, config=config).to(device)
     # we load the LoRA early but apply the adapter in __init__
     if config.load_path:
-        adapter_states = torch.load(f'{os.path.dirname(config.load_path)}/adapter.pt')
+        adapter_states = torch.load(f'{config.load_path}/adapter.pt')
         transformer.load_state_dict(adapter_states, strict=False)
     return model
 

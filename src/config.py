@@ -21,9 +21,7 @@ class Config:
 
     lora_rank: int = 16
     sample_teacher: bool = True
-
-    just_inf_timesteps: bool = True
-
+    just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
     #   so this does nothing if just_inf_timesteps=False
     shift_timesteps_resolution: bool = True
@@ -33,7 +31,7 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 8
+    batch_size: int = 4
     lr: float = 1e-4
 
     # TODO cut to length of content, not 8
@@ -47,7 +45,7 @@ class Config:
     ### Training
     epochs: int = 3000000000000
     max_steps: int = 100_000
-    max_val_steps: int = 64
+    max_val_steps: int = 30
 
     # this may break with LoRA teacher switching on/off
     do_compile: bool = True
@@ -63,8 +61,7 @@ class Config:
     val_data_path: str = '../preferrence-set-to-x/PAMELA//annotations/pamela_val_unseen.json'
     num_workers: int = 20
     # width & height side lengths
-    resolution: tuple[int, int] = (768, 384)
-
+    resolution: tuple[int, int] = (768, 768)
 
     ### Logging
     exp_name: str = None
@@ -118,6 +115,9 @@ def parse_dtype(config):
 def verify_config_validity(config):
     parse_dtype(config)
 
+    if config.do_compile:
+        logging.warning('Compilation may require many minutes of wait ' \
+        'up front and show warnings/errors before starting.')
     assert not (config.quantize_model and config.lora_rank), (
             'Saving LoRAs on quantized models is broken, so would need to patch the fn.')
 
