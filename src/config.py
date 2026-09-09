@@ -17,15 +17,15 @@ class Config:
 
     seed: int = 13
     # TODO ensure we have even number (pad) so we reach RoPE constraints?
-    k: int = 16
+    k: int = 32
 
-    lora_rank: int = 32
+    lora_rank: int = None
     sample_teacher: bool = True
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
     #   so this does nothing if just_inf_timesteps=False
     shift_timesteps_resolution: bool = True
-    # TODO uniform vs logit normal
+    # TODO uniform vs logit normal here
 
     quantize_adam: bool = False
     quantize_model: bool = False
@@ -35,7 +35,9 @@ class Config:
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
     lr: float = 1e-4
 
-    # TODO cut to length of content, not 8
+    # TODO add conditioning dropout rate
+    #   and val guidance scale
+
 
     # mainly acts as attention sink, keeping in-domain
     use_prompt: str = 'The scene.'
@@ -123,6 +125,8 @@ def verify_config_validity(config):
             'Saving LoRAs on quantized models is broken, so would need to patch the fn.')
 
 main_config = Config()
+
+
 
 if __name__ == "__main__":
     # TODO use pytest insteadf

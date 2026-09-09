@@ -61,7 +61,7 @@ def get_loss(model, embeds, images, config, dtype=None,):
             timesteps = timesteps[k]
         else:
             u = compute_density_for_timestep_sampling(
-                weighting_scheme='uniform',
+                weighting_scheme='logit_normal',
                 batch_size=x0.shape[0],
                 logit_mean=0,
                 logit_std=1,
@@ -123,6 +123,7 @@ def get_loss(model, embeds, images, config, dtype=None,):
     loss[~latents_there_mask] = 0
     # mean over batch last
     loss = loss.flatten(1).mean(1).mean()
+
 
     logging_dict = {'mse_loss': loss.item(),}
     return loss, logging_dict
@@ -198,7 +199,7 @@ class Zoo(torch.nn.Module):
     @torch.no_grad()
     def inference(self, 
                   embeds, 
-                  guidance_scale=5,
+                  guidance_scale=1.2,
                   width_height=None, 
                   generator=None):
         assert embeds.shape[0] == 1, f'Must be batch size of 1. {embeds.shape=}'
@@ -227,7 +228,7 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=5, 
+    def do_qual_val(self, pref_history_images, guidance_scale=1.2, 
                     sample_scores=None, target_scores=None):        
         # we do batch_size=1 evaluation for now
         pref_history_images = pref_history_images[:1]
@@ -399,5 +400,5 @@ def get_optimizer_and_lr_sched(params, lr, config):
         optimizer = bnb.optim.PagedAdamW8bit(params, lr=lr)
     else:
         optimizer = torch.optim.AdamW(params, lr=lr)
-    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, end_factor=.1, total_iters=100)
+    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, end_factor=.2, total_iters=800)
     return optimizer, scheduler
