@@ -1,12 +1,15 @@
 
 '''
-python scripts/eval.py
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python scripts/eval.py
 '''
 
 import os
 import torch
+torch.set_float32_matmul_precision('high')
 
 from pathlib import Path
+from PIL import Image
+
 import webbrowser
 import sys
 
@@ -17,6 +20,19 @@ from config import Config
 from data import get_dataloader
 
 
+def combine_images_side_by_side(images, padding=0, bg_color=(255, 255, 255)):
+    images = list(images)
+    max_height = max(img.height for img in images)
+    total_width = sum(img.width for img in images) + padding * (len(images) + 1)
+    combined = Image.new("RGB", (total_width, max_height + padding * 2), bg_color)
+
+    x = padding
+    for img in images:
+        combined.paste(img, (x, padding))
+        x += img.width + padding
+
+    return combined
+
 def folder_to_html(folder):
         fmt = '.png'
 
@@ -24,7 +40,6 @@ def folder_to_html(folder):
         if not path.is_dir():
                 raise NotADirectoryError(path)
 
-        # %% write HTML file to display all graphs
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -60,30 +75,30 @@ def folder_to_html(folder):
         webbrowser.open(html_path.as_uri())
 
 
-def run_inf(path='/home/ryn_mote/Misc/prior-adapter/logs/hydrovane_Philathea_Kullervo/', 
-            load_path='/home/ryn_mote/Misc/prior-adapter/logs/hydrovane_Philathea_Kullervo/3000_ckpt'):
+def run_eval(path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only', 
+            load_path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only/10500_ckpt'):
     config = Config.from_json(f'{path}/config.json')
     config.load_path = load_path
 
     # NOTE just faster loading, slower running
-    config.do_compile = False
+    config.do_compile = True
     os.makedirs('scratch/', exist_ok=True, )
 
     model = get_model_and_tokenizer(config.transformer_model_path, config.device, 
                                         config.dtype, config.seed, config.do_compile, config)
     model.config.log_dir = './scratch/'
+    model.seed = 11
 
-    model.config.seed = 11
-    torch.manual_seed(model.config.seed)
+    torch.manual_seed(model.seed)
     __train_dataloader, val_dataloader = get_dataloader(config.data_path, config.val_data_path, batch_size=1, num_workers=1, k=config.k,)
-    for batch in val_dataloader:
-        model.do_qual_val(batch['sample_pixels'], guidance_scale=1.2)
-        break
+    max_samples = 4
+    for ind, batch in zip(range(max_samples), val_dataloader):
+        model.do_qual_val(batch['sample_pixels'], guidance_scale=5)
+        path = f'{model.config.log_dir}/latest_val_{model.seed}_{model.total_steps}.png'
+        combine_images_side_by_side(batch['sample_pixels'][0] + [Image.open(path)]).save(f'./scratch/combined_{ind}.png')
 
-    folder_to_html(model.config.log_dir)
+#     folder_to_html(model.config.log_dir)
 
-run_inf()
-
-
+run_eval()
 
 

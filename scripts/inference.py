@@ -26,7 +26,6 @@ def folder_to_html(folder):
         if not path.is_dir():
                 raise NotADirectoryError(path)
 
-        # %% write HTML file to display all graphs
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -62,13 +61,12 @@ def folder_to_html(folder):
         webbrowser.open(html_path.as_uri())
 
 
-def run_inf(path='/home/ryn_mote/Misc/prior-adapter/logs/adapter_only', 
-            load_path='/home/ryn_mote/Misc/prior-adapter/logs/adapter_only/10500_ckpt'):
+def run_inf(path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only', 
+            load_path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only/10500_ckpt'):
     config = Config.from_json(f'{path}/config.json')
     config.load_path = load_path
 
-    # NOTE just faster loading, slower running
-    config.do_compile = False
+    # TODO clear scratch before using it
     os.makedirs('scratch/', exist_ok=True, )
 
     model = get_model_and_tokenizer(config.transformer_model_path, config.device, 
@@ -79,11 +77,12 @@ def run_inf(path='/home/ryn_mote/Misc/prior-adapter/logs/adapter_only',
     torch.manual_seed(model.config.seed)
     image_paths = ['/home/ryn_mote/Misc/bigDiffusion/assets/3o.png',
                    '/home/ryn_mote/Misc/bigDiffusion/assets/2o.png',
-                   '/home/ryn_mote/Misc/bigDiffusion/assets/10o.png'
+                   '/home/ryn_mote/Misc/bigDiffusion/assets/10o.png',
+                   '/home/ryn_mote/Misc/bigDiffusion/assets/9o.png',
                    ]
     images = [Image.open(i).convert('RGB') for i in image_paths]
-    model.do_qual_val(images, guidance_scale=4)
-
+    model.do_qual_val(images, guidance_scale=9, 
+                      sample_scores=[4, 1, 1, 1], target_scores=[5])
     folder_to_html(model.config.log_dir)
 
 run_inf()

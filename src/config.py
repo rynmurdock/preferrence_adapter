@@ -16,7 +16,7 @@ class Config:
     load_path = None
 
     seed: int = 13
-    # TODO ensure we have even number (pad) so we reach RoPE constraints?
+    # number of conditioning sample images with scores
     k: int = 32
 
     lora_rank: int = None
@@ -51,6 +51,7 @@ class Config:
     max_val_steps: int = 30
 
     # this may break with LoRA teacher switching on/off
+    # NOTE: running sans compile after reloading a ckpt may lead to an OOM
     do_compile: bool = True
     device: str = 'cuda:0'
     

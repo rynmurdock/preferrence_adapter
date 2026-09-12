@@ -40,7 +40,6 @@ def ids_encode_pad_mask_images(model, images, dtype):
 
 def get_loss(model, embeds, images, config, dtype=None,):
     sample_teacher = config.sample_teacher
-
     dtype = model.dtype if not dtype else dtype
     with torch.no_grad():
         # rng drop out inputs
@@ -92,8 +91,7 @@ def get_loss(model, embeds, images, config, dtype=None,):
                        latents_attention_mask=latents_there_mask.repeat(1, 2, 1),
                        prompt_embeds_attn_mask=torch.ones_like(
                            model.pipe.cached_teacher_txt_ids).sum(-1).expand(latents_there_mask.shape[0], -1),
-                       vanilla_forward=True,
-                       )
+                       vanilla_forward=True)
             teacher_noise_pred = teacher_noise_pred[:, : latents.size(1) :]
             if config.lora_rank:
                 model.pipe.transformer.orig_transformer.enable_lora()
@@ -123,7 +121,6 @@ def get_loss(model, embeds, images, config, dtype=None,):
     loss[~latents_there_mask] = 0
     # mean over batch last
     loss = loss.flatten(1).mean(1).mean()
-
 
     logging_dict = {'mse_loss': loss.item(),}
     return loss, logging_dict
@@ -163,6 +160,7 @@ class Zoo(torch.nn.Module):
             embeds = self.semantic_encoder_model.get_image_features(**inputs,
                                                                     output_hidden_states=True,
                                                                     ).hidden_states[-3].mean(-2)
+            # citation for using intermediate not last
             embeds_batch.append(embeds)
         embeds_batch = torch.stack(embeds_batch)
         return embeds_batch
@@ -205,6 +203,7 @@ class Zoo(torch.nn.Module):
         assert embeds.shape[0] == 1, f'Must be batch size of 1. {embeds.shape=}'
         width, height = self.config.resolution if not width_height else width_height[0], width_height[1]
         offload_vae_back_to_cpu = False
+
         # infer vae device from the all params
         if any([p.device != torch.device('cuda:0') for p in self.pipe.vae.parameters()]):
             offload_vae_back_to_cpu = True
@@ -229,30 +228,43 @@ class Zoo(torch.nn.Module):
 
     @torch.no_grad()
     def do_qual_val(self, pref_history_images, guidance_scale=1.2, 
-                    sample_scores=None, target_scores=None):        
+                    sample_scores: list[list] = None, target_scores: list = None, save_images=True):
+        
         # we do batch_size=1 evaluation for now
-        pref_history_images = pref_history_images[:1]
+        if isinstance(pref_history_images[0], list):
+            pref_history_images = pref_history_images[:1]
+        else:
+            pref_history_images = [pref_history_images]
+
         semantic_embeds = self.get_semantic_embeds(pref_history_images)
         target_embed = semantic_embeds.new_zeros(len(semantic_embeds), 1, semantic_embeds.shape[-1])
         semantic_embeds = torch.cat([target_embed, semantic_embeds], 1)
 
         # TODO use sample & target scores
+        if not target_scores:
+            logging.warning(f'No target score provided -- setting to 5 (love)')
+            target_scores = [5]
         if not sample_scores:
-            logging.warning(f'No scores provided -- giving 5s on all')
-            scores = torch.tensor([5,]*semantic_embeds.shape[1])
-        else:
-            logging.warning(
-                'Scores provided but not implemented'
-                '             -- giving 5s on all')
+            logging.warning(f'No scores provided -- giving 5s (love) on all')
+            sample_scores = [5]*(semantic_embeds.shape[1]-1)
 
+        assert semantic_embeds.shape[1] == len(sample_scores) + len(target_scores), (
+            f'{semantic_embeds.shape}[1] != {len(sample_scores)} + {len(target_scores)}')
+
+        scores = torch.tensor(target_scores + sample_scores)
         semantic_embeds = self.enrich_with_preference_embedding(semantic_embeds, scores)
-        for ind in [self.seed, self.seed+179]:
+        if semantic_embeds.shape[1] < self.config.k:
+            semantic_embeds = torch.nn.functional.pad(
+                semantic_embeds, (0, 0, 0, self.config.k - semantic_embeds.shape[1] + 1))
+
+        for ind in [self.seed, self.seed+1]:
             width, height = self.config.resolution
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
             image = self.inference(semantic_embeds, guidance_scale, (width, height), 
                                    latent_seed_generator)
             logging.info(f'Saving at {self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
-            image.save(f'{self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
+            if save_images:
+                image.save(f'{self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
 
     def process_inputs(self, batch):
         # target score goes first
@@ -308,6 +320,7 @@ def add_lora(transformer, rank, target_modules):
                  {transformer.num_parameters(only_trainable=True)} 
                  || all params: {transformer.num_parameters()}""")
 
+
 @torch.no_grad()
 def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     global Flux2KleinPipeline
@@ -337,9 +350,8 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
         # inplace operation
         add_lora(transformer, config.lora_rank, target_modules)
 
-    if config.batch_size > 1:
-        from modeling.klein_batched_rope import batchify_transformer_rope
-        transformer = batchify_transformer_rope(transformer)
+    from modeling.klein_batched_rope import batchify_transformer_rope
+    transformer = batchify_transformer_rope(transformer)
 
     pipe = Flux2KleinPipeline.from_pretrained("black-forest-labs/FLUX.2-klein-4B", 
                                               transformer=transformer,
@@ -378,9 +390,7 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     del pipe.text_encoder
     torch.cuda.empty_cache()
 
-    pipe.transformer = add_single_stream_embedding_adapter(pipe.transformer).to(device)
-    pipe.transformer = pipe.transformer.to(device)
-
+    pipe.transformer = add_single_stream_embedding_adapter(pipe.transformer)
     if do_compile:
         pipe.transformer = torch.compile(pipe.transformer)
 
@@ -388,11 +398,12 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     pipe.transformer.cached_txt_ids = pipe.cached_txt_ids
     pipe.transformer.k = config.k
 
-    model = Zoo(pipe, config.device, config.dtype, seed, config=config).to(device)
+    model = Zoo(pipe, config.device, config.dtype, seed, config=config)
     # we load the LoRA early but apply the adapter in __init__
     if config.load_path:
-        adapter_states = torch.load(f'{config.load_path}/adapter.pt')
+        adapter_states = torch.load(f'{config.load_path}/adapter.pt', map_location='cpu')
         transformer.load_state_dict(adapter_states, strict=False)
+    model.pipe.transformer = model.pipe.transformer.to(device)
     return model
 
 def get_optimizer_and_lr_sched(params, lr, config):
