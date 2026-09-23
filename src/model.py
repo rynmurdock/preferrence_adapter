@@ -29,7 +29,7 @@ def ids_encode_pad_mask_images(model, images, dtype):
             img_tensor = TF.to_tensor(pil_img) * 2 - 1  # (3, H, W), values in [-1, 1]
             img_tensor = img_tensor.to(model.device, dtype)[None]
             latent = model.pipe._encode_vae_image(img_tensor, None)
-            imids = Flux2KleinPipeline._prepare_image_ids([latent]).to(latent.device)
+            imids = Flux2KleinPipeline._prepare_latent_ids(latent).to(latent.device)
             image_ids.append(imids[0])
             latents.append(model.pipe._pack_latents(latent)[0])
         padded_latents = torch.nn.utils.rnn.pad_sequence(latents, batch_first=True,).squeeze(1)
