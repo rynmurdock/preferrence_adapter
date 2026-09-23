@@ -45,8 +45,8 @@ class ScoreEmbedding(torch.nn.Module):
     def forward(self, score, device='cuda', condition=None):
         # TODO don't snap to int
         # score-1 so we are 0-indexed.
-        score_one_hot = torch.nn.functional.one_hot(torch.Tensor(score-1).to(torch.long), 
-                                                    num_classes=5).to(device, torch.float)
+        score_one_hot = torch.nn.functional.one_hot(torch.Tensor(score-1).to(torch.long),
+                                                    num_classes=5).to(device, self.embed_linear.weight.dtype)
         sample = self.embed_linear(score_one_hot)
         if condition is not None:
             sample = sample + self.cond_proj(condition)
@@ -101,7 +101,7 @@ class SemanticEmbedsKlein(torch.nn.Module):
         # TODO take in siglip config's embed size through its config
         self.adapter = torch.nn.ModuleList([
                 SemanticFlux2SingleTransformerBlock(
-                    dim=128,
+                    dim=512,  # = num_attention_heads * attention_head_dim. 512 keeps heads*dim_head == dim and avoids override
                     num_attention_heads=4,
                     attention_head_dim=128,
                     mlp_ratio=2,
@@ -112,8 +112,8 @@ class SemanticEmbedsKlein(torch.nn.Module):
         # following i1 (https://arxiv.org/abs/2606.11289)
         #   for reasonable depth+1
 
-        self.in_linear = torch.nn.Linear(768, 128)
-        self.out_linear = torch.nn.Linear(128, out_dim)       
+        self.in_linear = torch.nn.Linear(768, 512)
+        self.out_linear = torch.nn.Linear(512, out_dim)
         self.score_embedder = ScoreEmbedding()
 
 
@@ -127,7 +127,7 @@ class SemanticEmbedsKlein(torch.nn.Module):
             # single stream over enc hidden states (semantic embeddings)
             txt_ids = kwargs['txt_ids']
             sem_emb_rotary_embeds = self.orig_transformer.pos_embed(txt_ids)
-            hidden_states = self.in_linear(kwargs['encoder_hidden_states'])
+            hidden_states = self.in_linear(kwargs['encoder_hidden_states'].to(self.in_linear.weight.dtype))
             for a in self.adapter:
                 hidden_states = a(
                     hidden_states=hidden_states,
