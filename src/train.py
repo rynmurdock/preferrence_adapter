@@ -115,7 +115,7 @@ Training {len(trained_params)} torch modules
 
             if total_inds % config.freq == 0:
                 # NOTE autocasting because our fp32 training model is also our val model
-                val_loss, qual_images = model.val(val_dataloader, config.max_val_steps, config.dtype)
+                val_loss, qual_images = model.val(val_dataloader, config.max_val_steps, config.dtype, config.n_inference_steps)
                 logging.info(f'{val_loss=:.4f}')
                 writer.add_scalar('loss/val', val_loss, total_inds)
                 for i, qual_image in enumerate(qual_images):

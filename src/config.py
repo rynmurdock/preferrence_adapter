@@ -12,15 +12,15 @@ from copy import deepcopy
 class Config:
     ### Model
     # model_path = None
-    transformer_model_path = None
+    transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
     load_path = None
 
     seed: int = 13
     # number of conditioning sample images with scores
-    k: int = 32
+    k: int = 8
 
     lora_rank: int = None
-    sample_teacher: bool = True
+    sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
     #   so this does nothing if just_inf_timesteps=False
@@ -31,12 +31,14 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 4
+    batch_size: int = 32
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
     lr: float = 1e-4
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
+
+    n_inference_steps: int = 50
 
 
     # mainly acts as attention sink, keeping in-domain

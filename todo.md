@@ -25,6 +25,9 @@
 [] qual eval
   [] pad & drop so that we could give just e.g. 2 images instead of four
 
+[] D-OPSD
+  - for now we just use the base model.
+
 ##### Codebase improvements
 [] stash current .py files into logs each training run
 [] avoid storing e.g. both model.config.seed and model.seed

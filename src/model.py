@@ -24,19 +24,26 @@ def ids_encode_pad_mask_images(model, images, dtype):
     with torch.autocast(device_type='cuda', enabled=True, dtype=dtype):
         latents = []
         image_ids = []
+        latent_ids = []
         for pil_img in images:
             pil_img = pil_img.resize((pil_img.width//16*16, pil_img.height//16*16))
             img_tensor = TF.to_tensor(pil_img) * 2 - 1  # (3, H, W), values in [-1, 1]
             img_tensor = img_tensor.to(model.device, dtype)[None]
             latent = model.pipe._encode_vae_image(img_tensor, None)
-            imids = Flux2KleinPipeline._prepare_latent_ids(latent).to(latent.device)
+            # NOTE: prepare_latent_ids (for noisy latent) is 
+            #     different from prepare_image_ids (for reference image)
+            imids = Flux2KleinPipeline._prepare_image_ids([latent]).to(latent.device)
+            lat_ids = Flux2KleinPipeline._prepare_latent_ids(latent).to(latent.device)
+            latent_ids.append(lat_ids[0])
             image_ids.append(imids[0])
             latents.append(model.pipe._pack_latents(latent)[0])
+            
         padded_latents = torch.nn.utils.rnn.pad_sequence(latents, batch_first=True,).squeeze(1)
         latents_there_mask = torch.nn.utils.rnn.pad_sequence([torch.ones_like(l) for l in latents], 
                                                             batch_first=True, ).squeeze(1) > 0
         image_ids = torch.nn.utils.rnn.pad_sequence(image_ids, batch_first=True).squeeze(1)
-        return padded_latents, image_ids, latents_there_mask
+        latent_ids = torch.nn.utils.rnn.pad_sequence(latent_ids, batch_first=True).squeeze(1)
+        return padded_latents, image_ids, latent_ids, latents_there_mask
 
 def get_loss(model, embeds, images, config, dtype=None,):
     sample_teacher = config.sample_teacher
@@ -50,14 +57,14 @@ def get_loss(model, embeds, images, config, dtype=None,):
             [torch.ones_like(l) for l in embeds.sum(-1)], batch_first=True, ).squeeze(1) > 0
         embeds_ids = model.pipe._prepare_text_ids(embeds).to(model.device)
 
-        x0, typical_image_ids, latents_there_mask = ids_encode_pad_mask_images(model, 
+        x0, typical_image_ids, latent_ids, latents_there_mask = ids_encode_pad_mask_images(model, 
                                                                        images, model.config.dtype)
 
         noise = torch.randn_like(x0)
         if config.just_inf_timesteps:
-            timesteps = get_inf_timesteps(model.pipe.scheduler, x0, num_inference_steps=4, device=model.device)
+            timesteps = get_inf_timesteps(model.pipe.scheduler, x0, num_inference_steps=config.n_inference_steps, device=model.device)
             k = torch.randint(0, 4, (noise.shape[0],)).to(x0.device)
-            timesteps = timesteps[k]
+            timesteps = timesteps[torch.arange(x0.shape[0]), k]
         else:
             u = compute_density_for_timestep_sampling(
                 weighting_scheme='logit_normal',
@@ -83,7 +90,7 @@ def get_loss(model, embeds, images, config, dtype=None,):
                 model.pipe.transformer.orig_transformer.disable_lora()
             
             latent_model_input = torch.cat([latents, x0], dim=1).to(model.pipe.transformer.dtype)
-            latent_image_ids = torch.cat([typical_image_ids, typical_image_ids], dim=1)
+            latent_image_ids = torch.cat([latent_ids, typical_image_ids], dim=1)
             teacher_noise_pred = model(latent_model_input, 
                        timesteps=timesteps, image_ids=latent_image_ids, 
                        prompt_embeds=model.pipe.cached_teacher_prompt,
@@ -99,7 +106,7 @@ def get_loss(model, embeds, images, config, dtype=None,):
 
     with torch.autocast(device_type='cuda', enabled=not config.quantize_model, dtype=dtype):
         latent_model_input = torch.cat([latents], dim=1).to(model.pipe.transformer.dtype)
-        latent_image_ids = torch.cat([typical_image_ids], dim=1)
+        latent_image_ids = latent_ids
 
         output = model(latent_model_input, 
                        timesteps=timesteps, image_ids=latent_image_ids,
@@ -198,12 +205,13 @@ class Zoo(torch.nn.Module):
                   embeds, 
                   guidance_scale=1.2,
                   width_height=None, 
-                  generator=None):
+                  generator=None,
+                  n_inference_steps=4,):
         assert embeds.shape[0] == 1, f'Must be batch size of 1. {embeds.shape=}'
         width, height = self.config.resolution if not width_height else width_height[0], width_height[1]
         offload_vae_back_to_cpu = False
 
-        # infer vae device from the all params
+        # infer vae device from all params
         if any([p.device != torch.device('cuda:0') for p in self.pipe.vae.parameters()]):
             offload_vae_back_to_cpu = True
             self.pipe.vae = self.pipe.vae.to('cuda')
@@ -212,8 +220,7 @@ class Zoo(torch.nn.Module):
         self.pipe.config.is_distilled = False
         with torch.autocast('cuda'):
             image = self.pipe(
-                # just smuggling for our image ids
-                num_inference_steps=4,
+                num_inference_steps=n_inference_steps,
                 guidance_scale=guidance_scale,
                 prompt_embeds=embeds,
                 negative_prompt_embeds=torch.zeros_like(embeds),
@@ -227,7 +234,8 @@ class Zoo(torch.nn.Module):
 
     @torch.no_grad()
     def do_qual_val(self, pref_history_images, guidance_scale=1.2, 
-                    sample_scores: list[list] = None, target_scores: list = None, save_images=True):
+                    sample_scores: list[list] = None, target_scores: list = None, 
+                    save_images=True, n_inference_steps=4):
         
         # we do batch_size=1 evaluation for now
         if isinstance(pref_history_images[0], list):
@@ -261,10 +269,12 @@ class Zoo(torch.nn.Module):
             width, height = self.config.resolution
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
             image = self.inference(semantic_embeds, guidance_scale, (width, height),
-                                   latent_seed_generator)
+                                   latent_seed_generator, n_inference_steps)
             logging.info(f'Saving at {self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
             if save_images:
                 image.save(f'{self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
+                for ind, pref_im in enumerate(pref_history_images):
+                    pref_im.save(f'{ind}_pref_im.png')
             images_out.append(image)
         return images_out
 
@@ -282,7 +292,7 @@ class Zoo(torch.nn.Module):
 
     
     @torch.no_grad()
-    def val(self, val_dataloader, max_val_steps, dtype):
+    def val(self, val_dataloader, max_val_steps, dtype, n_inference_steps=4):
         logging.info(f'\nRunning validation for max {max_val_steps}\n')
         # fork_rng temporarily isolates changes
         with torch.random.fork_rng():
@@ -303,7 +313,7 @@ class Zoo(torch.nn.Module):
                     # NOTE: previously this qual-image call sat unreachably after the loop,
                     #   since we always return before exhausting val_dataloader -- moved here
                     #   so it actually runs every val() call
-                    qual_images = self.do_qual_val(batch['sample_pixels'])
+                    qual_images = self.do_qual_val(batch['sample_pixels'], n_inference_steps)
                     return sum(losses) / len(losses), qual_images
             qual_images = self.do_qual_val(batch['sample_pixels'])
             return sum(losses) / len(losses), qual_images
@@ -333,7 +343,8 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     
     transformer = Flux2Transformer2DModel.from_pretrained("black-forest-labs/FLUX.2-klein-4B" if path is None
                                                            else path, # we save without a subdir
-                                                           subfolder=None if path else 'transformer',
+                                                           # bfl prefix as a heuristic for "contains full model set"
+                                                           subfolder='transformer' if 'black-forest-lab' in path else None,
                                                            torch_dtype=dtype,
                                                            quantization_config=BitsAndBytesConfig(load_in_8bit=True,) if config.quantize_model else None,
                                                            strict=False)
