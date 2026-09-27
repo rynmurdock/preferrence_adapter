@@ -13,7 +13,7 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
-    load_path = '/root/preferrence_adapter/logs/hypertype_Cordoba_Emim/3000_ckpt/'
+    load_path = None
 
     seed: int = 13
     # number of conditioning sample images with scores
@@ -31,7 +31,7 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 64
+    batch_size: int = 32
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
     lr: float = 4e-6
 
@@ -50,11 +50,11 @@ class Config:
     ### Training
     epochs: int = 3000000000000
     max_steps: int = 100_000
-    max_val_steps: int = 16
+    max_val_steps: int = 64
 
     # this may break with LoRA teacher switching on/off
     # NOTE: running sans compile after reloading a ckpt may lead to an OOM
-    do_compile: bool = False
+    do_compile: bool = True
     device: str = 'cuda:0'
     
     # specifically for *mixed precision*

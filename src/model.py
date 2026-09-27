@@ -50,7 +50,7 @@ def get_loss(model, embeds, images, config, dtype=None,):
     dtype = model.dtype if not dtype else dtype
     with torch.no_grad():
         # rng drop out inputs
-        zeroing_mask = torch.rand((embeds.shape[0], embeds.shape[1])) < .3
+        zeroing_mask = torch.rand((embeds.shape[0],)) < .2
         embeds[zeroing_mask] = 0
 
         prompt_embeds_attn_mask = torch.nn.utils.rnn.pad_sequence(
@@ -233,7 +233,7 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=2, 
+    def do_qual_val(self, pref_history_images, guidance_scale=7, 
                     sample_scores: list[list] = None, target_scores: list = None, 
                     save_images=True, n_inference_steps=4,
                     step_n=None):
@@ -316,7 +316,7 @@ class Zoo(torch.nn.Module):
                 if index >= max_val_steps:
                     break
             qual_images = self.do_qual_val(batch['sample_pixels'], 
-                        n_inference_steps=n_inference_steps, sample_scores=batch['sample_scores'], 
+                        n_inference_steps=n_inference_steps, sample_scores=[5, 1, 2, 2, 1, 5, 1, 2], 
                         step_n=step_n)
             return sum(losses) / len(losses), qual_images
 
@@ -415,8 +415,6 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     pipe.transformer.in_linear = pipe.transformer.in_linear.to(dtype)
     pipe.transformer.out_linear = pipe.transformer.out_linear.to(dtype)
     pipe.transformer.score_embedder = pipe.transformer.score_embedder.to(dtype)
-    if do_compile:
-        pipe.transformer = torch.compile(pipe.transformer)
 
     pipe.transformer.cached_prompt = pipe.cached_prompt
     pipe.transformer.cached_txt_ids = pipe.cached_txt_ids
@@ -429,6 +427,9 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
         missing, unexpected = model.pipe.transformer.load_state_dict(adapter_states, strict=False)
         assert not unexpected, f'Unexpected keys in adapter checkpoint: {unexpected}'
     model.pipe.transformer = model.pipe.transformer.to(device)
+    if do_compile:
+        pipe.transformer = torch.compile(pipe.transformer)
+
     return model
 
 def get_optimizer_and_lr_sched(params, lr, config):
