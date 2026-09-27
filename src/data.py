@@ -296,7 +296,7 @@ def remove_empty_dirs(path_to_folders):
 
 def get_dataloader(data_path, val_data_path, 
                    batch_size, num_workers, k, demographic_vocab=None):
-    val_batch_size = batch_size
+    val_batch_size = 1
 
     # TODO add back!
     # if demographic_vocab is None:

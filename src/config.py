@@ -31,7 +31,7 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 32
+    batch_size: int = 64
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
     lr: float = 1e-4
 
@@ -54,7 +54,7 @@ class Config:
 
     # this may break with LoRA teacher switching on/off
     # NOTE: running sans compile after reloading a ckpt may lead to an OOM
-    do_compile: bool = True
+    do_compile: bool = False
     device: str = 'cuda:0'
     
     # specifically for *mixed precision*
@@ -63,8 +63,8 @@ class Config:
     activation_checkpointing: bool = True
 
     ### Data
-    data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_train.json'
-    val_data_path: str = '../preferrence-set-to-x/PAMELA//annotations/pamela_val_unseen.json'
+    data_path: str = './PAMELA/PAMELA/annotations/pamela_train.json'
+    val_data_path: str = './PAMELA/PAMELA//annotations/pamela_val_unseen.json'
     num_workers: int = 20
     # width & height side lengths
     resolution: tuple[int, int] = (768, 768)

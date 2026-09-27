@@ -273,7 +273,7 @@ class Zoo(torch.nn.Module):
             logging.info(f'Saving at {self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
             if save_images:
                 image.save(f'{self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
-                for ind, pref_im in enumerate(pref_history_images):
+                for ind, pref_im in enumerate(pref_history_images[0]):
                     pref_im.save(f'{ind}_pref_im.png')
             images_out.append(image)
         return images_out
