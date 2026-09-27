@@ -233,9 +233,10 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=1.2, 
+    def do_qual_val(self, pref_history_images, guidance_scale=2, 
                     sample_scores: list[list] = None, target_scores: list = None, 
-                    save_images=True, n_inference_steps=4):
+                    save_images=True, n_inference_steps=4,
+                    step_n=None):
         
         # we do batch_size=1 evaluation for now
         if isinstance(pref_history_images[0], list):
@@ -248,12 +249,15 @@ class Zoo(torch.nn.Module):
         semantic_embeds = torch.cat([target_embed, semantic_embeds], 1)
 
         # TODO use sample & target scores
-        if not target_scores:
+        if target_scores is None:
             logging.warning(f'No target score provided -- setting to 5 (love)')
             target_scores = [5]
-        if not sample_scores:
+        if sample_scores is None:
             logging.warning(f'No scores provided -- giving 5s (love) on all')
             sample_scores = [5]*(semantic_embeds.shape[1]-1)
+        else:
+            if isinstance(sample_scores[0], torch.Tensor): 
+                sample_scores = sample_scores[0].numpy().tolist()
 
         assert semantic_embeds.shape[1] == len(sample_scores) + len(target_scores), (
             f'{semantic_embeds.shape}[1] != {len(sample_scores)} + {len(target_scores)}')
@@ -270,9 +274,9 @@ class Zoo(torch.nn.Module):
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
             image = self.inference(semantic_embeds, guidance_scale, (width, height),
                                    latent_seed_generator, n_inference_steps)
-            logging.info(f'Saving at {self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
+            logging.info(f'Saving at {self.config.log_dir}/{step_n}_latest_val_{ind}_{self.total_steps}.png')
             if save_images:
-                image.save(f'{self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
+                image.save(f'{self.config.log_dir}/{step_n}_latest_val_{ind}_{self.total_steps}.png')
                 for ind, pref_im in enumerate(pref_history_images[0]):
                     pref_im.save(f'{ind}_pref_im.png')
             images_out.append(image)
@@ -292,7 +296,7 @@ class Zoo(torch.nn.Module):
 
     
     @torch.no_grad()
-    def val(self, val_dataloader, max_val_steps, dtype, n_inference_steps=4):
+    def val(self, val_dataloader, max_val_steps, dtype, step_n=None, n_inference_steps=4):
         logging.info(f'\nRunning validation for max {max_val_steps}\n')
         # fork_rng temporarily isolates changes
         with torch.random.fork_rng():
@@ -310,12 +314,10 @@ class Zoo(torch.nn.Module):
                                                    config=self.config,)
                 losses.append(loss.item())
                 if index >= max_val_steps:
-                    # NOTE: previously this qual-image call sat unreachably after the loop,
-                    #   since we always return before exhausting val_dataloader -- moved here
-                    #   so it actually runs every val() call
-                    qual_images = self.do_qual_val(batch['sample_pixels'], n_inference_steps)
-                    return sum(losses) / len(losses), qual_images
-            qual_images = self.do_qual_val(batch['sample_pixels'])
+                    break
+            qual_images = self.do_qual_val(batch['sample_pixels'], 
+                        n_inference_steps=n_inference_steps, sample_scores=batch['sample_scores'], 
+                        step_n=step_n)
             return sum(losses) / len(losses), qual_images
 
 
@@ -339,8 +341,6 @@ def add_lora(transformer, rank, target_modules):
 
 @torch.no_grad()
 def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
-    global Flux2KleinPipeline
-    
     transformer = Flux2Transformer2DModel.from_pretrained("black-forest-labs/FLUX.2-klein-4B" if path is None
                                                            else path, # we save without a subdir
                                                            # bfl prefix as a heuristic for "contains full model set"

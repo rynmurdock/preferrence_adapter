@@ -13,7 +13,7 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
-    load_path = None
+    load_path = '/root/preferrence_adapter/logs/hypertype_Cordoba_Emim/3000_ckpt/'
 
     seed: int = 13
     # number of conditioning sample images with scores
@@ -33,7 +33,7 @@ class Config:
     ### Hparams
     batch_size: int = 64
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 1e-4
+    lr: float = 4e-6
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
@@ -50,7 +50,7 @@ class Config:
     ### Training
     epochs: int = 3000000000000
     max_steps: int = 100_000
-    max_val_steps: int = 30
+    max_val_steps: int = 16
 
     # this may break with LoRA teacher switching on/off
     # NOTE: running sans compile after reloading a ckpt may lead to an OOM
