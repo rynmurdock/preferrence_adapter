@@ -155,7 +155,7 @@ class Zoo(torch.nn.Module):
         # TODO can make improvements here
         embeds = embeds + self.pipe.transformer.score_embedder(scores)
         return embeds
-        
+
 
     @torch.no_grad()
     def get_semantic_embeds(self, batch_images: list[list]):
@@ -233,7 +233,7 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=7, 
+    def do_qual_val(self, pref_history_images, guidance_scale=4, 
                     sample_scores: list[list] = None, target_scores: list = None, 
                     save_images=True, n_inference_steps=4,
                     step_n=None):
@@ -259,14 +259,13 @@ class Zoo(torch.nn.Module):
             if isinstance(sample_scores[0], torch.Tensor): 
                 sample_scores = sample_scores[0].numpy().tolist()
 
-        assert semantic_embeds.shape[1] == len(sample_scores) + len(target_scores), (
-            f'{semantic_embeds.shape}[1] != {len(sample_scores)} + {len(target_scores)}')
 
         scores = torch.tensor(target_scores + sample_scores)
         semantic_embeds = self.enrich_with_preference_embedding(semantic_embeds, scores)
         if semantic_embeds.shape[1] < self.config.k:
             semantic_embeds = torch.nn.functional.pad(
                 semantic_embeds, (0, 0, 0, self.config.k - semantic_embeds.shape[1] + 1))
+
 
         images_out = []
         for ind in [self.seed, self.seed+1]:
@@ -290,6 +289,7 @@ class Zoo(torch.nn.Module):
         # target embed only holds our score embedding for the to-predict image
         target_embed = embeds.new_zeros(len(embeds), 1, embeds.shape[-1])
         embeds = torch.cat([target_embed, embeds], 1)
+
         scores = torch.cat([batch['target_scores'], batch['sample_scores']], 1)
         embeds = self.enrich_with_preference_embedding(embeds, scores)
         return embeds
@@ -316,7 +316,7 @@ class Zoo(torch.nn.Module):
                 if index >= max_val_steps:
                     break
             qual_images = self.do_qual_val(batch['sample_pixels'], 
-                        n_inference_steps=n_inference_steps, sample_scores=[5, 1, 2, 2, 1, 5, 1, 2], 
+                        n_inference_steps=n_inference_steps, 
                         step_n=step_n)
             return sum(losses) / len(losses), qual_images
 
@@ -437,5 +437,5 @@ def get_optimizer_and_lr_sched(params, lr, config):
         optimizer = bnb.optim.PagedAdamW8bit(params, lr=lr)
     else:
         optimizer = torch.optim.AdamW(params, lr=lr)
-    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, end_factor=.2, total_iters=800)
+    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, end_factor=.5, total_iters=800)
     return optimizer, scheduler

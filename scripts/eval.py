@@ -75,8 +75,8 @@ def folder_to_html(folder):
         webbrowser.open(html_path.as_uri())
 
 
-def run_eval(path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only', 
-            load_path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only/10500_ckpt'):
+def run_eval(path='/root/preferrence_adapter/logs/multiplying_Yeisk_Mordvin/', 
+            load_path='/root/preferrence_adapter/logs/multiplying_Yeisk_Mordvin/2500_ckpt'):
     config = Config.from_json(f'{path}/config.json')
     config.load_path = load_path
 
@@ -93,7 +93,7 @@ def run_eval(path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only',
     __train_dataloader, val_dataloader = get_dataloader(config.data_path, config.val_data_path, batch_size=1, num_workers=1, k=config.k,)
     max_samples = 4
     for ind, batch in zip(range(max_samples), val_dataloader):
-        model.do_qual_val(batch['sample_pixels'], guidance_scale=5)
+        model.do_qual_val(batch['sample_pixels'], guidance_scale=3)
         path = f'{model.config.log_dir}/latest_val_{model.seed}_{model.total_steps}.png'
         combine_images_side_by_side(batch['sample_pixels'][0] + [Image.open(path)]).save(f'./scratch/combined_{ind}.png')
 

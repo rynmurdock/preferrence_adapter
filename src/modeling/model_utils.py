@@ -106,8 +106,8 @@ class SemanticEmbedsKlein(torch.nn.Module):
         # TODO take in siglip config's embed size through its config
         self.adapter = torch.nn.ModuleList([
                 SemanticFlux2SingleTransformerBlock(
-                    dim=512,  # = num_attention_heads * attention_head_dim. 512 keeps heads*dim_head == dim and avoids override
-                    num_attention_heads=4,
+                    dim=512,
+                    num_attention_heads=16,
                     attention_head_dim=128,
                     mlp_ratio=2,
                     eps=1e-6,
