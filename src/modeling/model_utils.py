@@ -39,7 +39,12 @@ class ScoreEmbedding(torch.nn.Module):
 
         # we use one-hot to make our own linear,
         #   as nn.Embedding is apt to break on distributed training
-        self.embed_linear = torch.nn.Linear(5, out_dim)
+        self.embed_linear = torch.nn.Linear(5, out_dim,)
+
+        with torch.no_grad():
+            torch.nn.init.normal_(self.embed_linear.weight)
+
+
 
     # TODO infer device, not default to cuda
     def forward(self, score, device='cuda', condition=None):
@@ -137,12 +142,12 @@ class SemanticEmbedsKlein(torch.nn.Module):
                     )
             hidden_states = self.out_linear(hidden_states)
             if not cached_prompt is None:
-                hidden_states = torch.cat([cached_prompt.expand(len(hidden_states), -1, -1)[:, :8], 
+                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :512-self.k-1], 
                     hidden_states], 1)
-                kwargs['txt_ids'] = self.cached_txt_ids[:, :8+self.k+1]
+                kwargs['txt_ids'] = self.cached_txt_ids
                 if not kwargs['joint_attention_kwargs'] is None:
                     att_mask = kwargs['joint_attention_kwargs']['attention_mask']
-                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :8] > 0, 
+                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :512-self.k-1] > 0, 
                         att_mask], 1)
                     kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
             kwargs['encoder_hidden_states'] = hidden_states

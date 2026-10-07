@@ -19,7 +19,7 @@ class Config:
     # number of conditioning sample images with scores
     k: int = 8
 
-    lora_rank: int = None
+    lora_rank: int = 64
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
@@ -31,15 +31,14 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 32
+    batch_size: int = 16
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 4e-6
+    lr: float = 1e-4
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
 
     n_inference_steps: int = 50
-
 
     # mainly acts as attention sink, keeping in-domain
     use_prompt: str = 'The scene.'
@@ -50,13 +49,13 @@ class Config:
     ### Training
     epochs: int = 3000000000000
     max_steps: int = 100_000
-    max_val_steps: int = 64
+    max_val_steps: int = 128
 
     # this may break with LoRA teacher switching on/off
     # NOTE: running sans compile after reloading a ckpt may lead to an OOM
     do_compile: bool = True
     device: str = 'cuda:0'
-    
+
     # specifically for *mixed precision*
     # we parse torch dtypes to str on saving & then back on loading for simplicity
     dtype: torch.dtype = field(default=torch.bfloat16, repr=False)
@@ -72,7 +71,7 @@ class Config:
     ### Logging
     exp_name: str = None
     save_path: str = './'
-    freq: int = 500 # how often we save/log/etc.
+    freq: int = 1000 # how often we save/log/etc.
 
     def to_json(self, filename):
         # we don't want to mutate our actual class
