@@ -33,7 +33,7 @@ class Config:
     ### Hparams
     batch_size: int = 16
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 5e-5
+    lr: float = 2e-4
 
     # TODO add conditioning dropout rate
     #   and val guidance scale

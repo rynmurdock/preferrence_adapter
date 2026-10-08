@@ -44,6 +44,7 @@ class ScoreEmbedding(torch.nn.Module):
         with torch.no_grad():
             torch.nn.init.normal_(self.embed_linear.weight)
 
+        self.ln = torch.nn.LayerNorm(time_embed_dim_out)
 
 
     # TODO infer device, not default to cuda
@@ -64,6 +65,9 @@ class ScoreEmbedding(torch.nn.Module):
 
         if self.post_act is not None:
             sample = self.post_act(sample)
+
+        sample = self.ln(sample)
+
         return sample
 
 
