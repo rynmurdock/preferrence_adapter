@@ -1,4 +1,3 @@
-import os
 import torch
 import logging
 from tqdm import tqdm
@@ -8,7 +7,6 @@ from torchvision.transforms import functional as TF
 
 from diffusers import Flux2KleinPipeline
 from diffusers.models.transformers.transformer_flux2 import Flux2Transformer2DModel
-from diffusers.pipelines.flux2.pipeline_flux2_klein import compute_empirical_mu
 
 from diffusers import BitsAndBytesConfig
 from diffusers.training_utils import compute_density_for_timestep_sampling
@@ -18,7 +16,7 @@ from transformers import AutoModel, AutoProcessor
 import bitsandbytes as bnb
 from peft import LoraConfig
 
-from modeling.model_utils import get_inf_timesteps, add_single_stream_embedding_adapter, repair_state_dict_keys
+from modeling.model_utils import get_inf_timesteps, add_single_stream_embedding_adapter, repair_state_dict_keys, calculate_shift
 
 def ids_encode_pad_mask_images(model, images, dtype):
     with torch.autocast(device_type='cuda', enabled=True, dtype=dtype):
@@ -75,13 +73,15 @@ def get_loss(model, embeds, images, config, dtype=None,):
             # shift per sample using its mask for seq len of non-padding
             if config.shift_timesteps_resolution:
                 mus = []
+                # NOTE this ditches compute_empirical_mu
                 for sample_ind in range(noise.shape[0]):
-                   mu = compute_empirical_mu(latents_there_mask[sample_ind].amax(-1).sum(0), 4)
-                   mus.append(mu)
+                    mu = calculate_shift(latents_there_mask[sample_ind].amax(-1).sum(0), )
+                    mus.append(mu)
                 mus = torch.tensor(mus).to(u.device, u.dtype)
                 u = torch.exp(mus) / (torch.exp(mus) + (1 / u - 1) ** 1)
             indices = (u * model.noise_scheduler_copy.config.num_train_timesteps).long()
             timesteps = model.noise_scheduler_copy.timesteps[indices].to(device=x0.device)
+
         sigma = timesteps.view(-1, 1, 1) / 1000
         latents = sigma * noise + (1 - sigma) * x0
 
@@ -127,7 +127,9 @@ def get_loss(model, embeds, images, config, dtype=None,):
     # mask anywhere we don't have contents
     loss[~latents_there_mask] = 0
     # mean over batch last
-    loss = loss.flatten(1).mean(1).mean()
+    loss = loss.flatten(1).sum(1) / latents_there_mask.flatten(1).sum(1)
+    loss = loss.mean()
+
 
     logging_dict = {'mse_loss': loss.item(),}
     return loss, logging_dict

@@ -101,9 +101,12 @@ def folder_to_html(folder):
 
 
 def run_eval(path=None, 
-            load_path='/root/oct8_adapter_step_6600_ckpt/6600_ckpt/'):
+            load_path=None):
+
+    # TODO must set back to loading from json
     config = cnf.main_config
-    config.load_path = load_path
+    if load_path:
+        config.load_path = load_path
 
     # NOTE just faster loading, slower running
     config.do_compile = True
@@ -118,7 +121,7 @@ def run_eval(path=None,
     max_samples = 8
     for ind, batch in zip(range(max_samples), val_dataloader):
         torch.manual_seed(model.seed)
-        model.do_qual_val(batch['sample_pixels'], guidance_scale=7, sample_scores=batch['sample_scores'], n_inference_steps=40)
+        model.do_qual_val(batch['sample_pixels'], guidance_scale=11, sample_scores=batch['sample_scores'], n_inference_steps=40)
 
         path = f'{model.config.log_dir}/None_latest_val_{model.seed}_{model.total_steps}.png'
         combine_images_side_by_side(batch['sample_pixels'][0] + [Image.open(path)], scores=batch['sample_scores'][0]).save(f'./scratch/combined_{ind}_0.png')

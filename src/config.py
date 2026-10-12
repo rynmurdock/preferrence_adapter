@@ -13,13 +13,13 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
-    load_path = None
+    load_path = 'logs/6600_ckpt/'
 
     seed: int = 13
     # number of conditioning sample images with scores
     k: int = 32
 
-    lora_rank: int = 8
+    lora_rank: int = None
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
@@ -62,11 +62,11 @@ class Config:
     activation_checkpointing: bool = True
 
     ### Data
-    data_path: str = './PAMELA/PAMELA/annotations/pamela_train.json'
-    val_data_path: str = './PAMELA/PAMELA//annotations/pamela_val_unseen.json'
+    data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_train.json'
+    val_data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_val_unseen.json'
     num_workers: int = 20
     # width & height side lengths
-    resolution: tuple[int, int] = (768, 768)
+    resolution: tuple[int, int] = (512, 512)
 
     ### Logging
     exp_name: str = None
