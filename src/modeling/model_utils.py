@@ -5,6 +5,13 @@ import inspect
 from diffusers.models.transformers.transformer_flux2 import Flux2SingleTransformerBlock
 
 
+def repair_state_dict_keys(state_dict, strip='_orig_mod.'):
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        new_state_dict[k.replace(strip, '')] = v
+    return new_state_dict
+
+
 class ScoreEmbedding(torch.nn.Module):
     def __init__(
         self,

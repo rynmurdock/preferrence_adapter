@@ -33,7 +33,10 @@ def setup_log_dir(config):
     if config.load_path:
         parent = f'{config.load_path}/pytorch_lora_weights.safetensors'
         # [-2] as we have root/<word_name_lastname>/step_ckpt/
-        suffix = os.path.dirname(parent).split('_')[-2].split('/')[-2]
+        try:
+            suffix = os.path.dirname(parent).split('_')[-2].split('/')[-2]
+        except:
+            suffix = 'Murdock'
         l_name = codename.split('_')
         l_name[-1] = suffix
         codename = '_'.join(l_name)

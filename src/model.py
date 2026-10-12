@@ -18,7 +18,7 @@ from transformers import AutoModel, AutoProcessor
 import bitsandbytes as bnb
 from peft import LoraConfig
 
-from modeling.model_utils import get_inf_timesteps, add_single_stream_embedding_adapter
+from modeling.model_utils import get_inf_timesteps, add_single_stream_embedding_adapter, repair_state_dict_keys
 
 def ids_encode_pad_mask_images(model, images, dtype):
     with torch.autocast(device_type='cuda', enabled=True, dtype=dtype):
@@ -424,6 +424,7 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     # we load the LoRA early but apply the adapter in __init__
     if config.load_path:
         adapter_states = torch.load(f'{config.load_path}/adapter.pt', map_location='cpu')
+        adapter_states = repair_state_dict_keys(adapter_states)
         missing, unexpected = model.pipe.transformer.load_state_dict(adapter_states, strict=False)
         assert not unexpected, f'Unexpected keys in adapter checkpoint: {unexpected}'
     model.pipe.transformer = model.pipe.transformer.to(device)

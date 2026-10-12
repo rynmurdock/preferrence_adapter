@@ -19,7 +19,7 @@ class Config:
     # number of conditioning sample images with scores
     k: int = 32
 
-    lora_rank: int = None
+    lora_rank: int = 8
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
@@ -31,9 +31,9 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 16
+    batch_size: int = 8
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 2e-4
+    lr: float = 2e-5
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
