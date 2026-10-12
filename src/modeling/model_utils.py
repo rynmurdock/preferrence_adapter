@@ -147,11 +147,13 @@ class SemanticEmbedsKlein(torch.nn.Module):
             for a in self.adapter:
                 hidden_states = a(
                     hidden_states=hidden_states,
-                    rotary_emb=sem_emb_rotary_embeds, # TODO just use max truncate here?
-                    # TODO cut to length of content, not 8
+                    rotary_emb=sem_emb_rotary_embeds, 
+                    # NOTE we're just padding to max & seeing all
                     joint_attention_kwargs={'attention_mask': prompt_embeds_attn_mask},
                     )
             hidden_states = self.out_linear(hidden_states)
+
+            # prepend our cached text prompt
             if not cached_prompt is None:
                 hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :512-self.k-1], 
                     hidden_states], 1)

@@ -51,8 +51,12 @@ def get_loss(model, embeds, images, config, dtype=None,):
         zeroing_mask = torch.rand((embeds.shape[0],)) < .2
         embeds[zeroing_mask] = 0
 
-        prompt_embeds_attn_mask = torch.nn.utils.rnn.pad_sequence(
+        # now we do no masking on embeddings: we just pad to max
+        prompt_embeds_attn_mask = torch.ones_like(
+            torch.nn.utils.rnn.pad_sequence(
             [torch.ones_like(l) for l in embeds.sum(-1)], batch_first=True, ).squeeze(1) > 0
+        )
+        
         embeds_ids = model.pipe._prepare_text_ids(embeds).to(model.device)
 
         x0, typical_image_ids, latent_ids, latents_there_mask = ids_encode_pad_mask_images(model, 
@@ -237,7 +241,7 @@ class Zoo(torch.nn.Module):
     @torch.no_grad()
     def do_qual_val(self, pref_history_images, guidance_scale=4, 
                     sample_scores: list[list] = None, target_scores: list = None, 
-                    save_images=True, n_inference_steps=4,
+                    save_images=False, n_inference_steps=4,
                     step_n=None):
         
         # we do batch_size=1 evaluation for now
@@ -261,13 +265,12 @@ class Zoo(torch.nn.Module):
             if isinstance(sample_scores[0], torch.Tensor): 
                 sample_scores = sample_scores[0].numpy().tolist()
 
-
         scores = torch.tensor(target_scores + sample_scores)
         semantic_embeds = self.enrich_with_preference_embedding(semantic_embeds, scores)
+        # NOTE we're just padding to max & seeing all
         if semantic_embeds.shape[1] < self.config.k:
             semantic_embeds = torch.nn.functional.pad(
                 semantic_embeds, (0, 0, 0, self.config.k - semantic_embeds.shape[1] + 1))
-
 
         images_out = []
         for ind in [self.seed, self.seed+1]:
@@ -285,6 +288,7 @@ class Zoo(torch.nn.Module):
 
     def process_inputs(self, batch):
         # target score goes first
+
         # TODO for varying prompts, we should put the 
         #   prompt after the embeddings to keep 0th instance as target score
         embeds = self.get_semantic_embeds(batch['sample_pixels'])

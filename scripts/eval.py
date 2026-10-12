@@ -121,7 +121,9 @@ def run_eval(path=None,
     max_samples = 8
     for ind, batch in zip(range(max_samples), val_dataloader):
         torch.manual_seed(model.seed)
-        model.do_qual_val(batch['sample_pixels'], guidance_scale=11, sample_scores=batch['sample_scores'], n_inference_steps=40)
+        model.do_qual_val(batch['sample_pixels'], guidance_scale=11, 
+                          sample_scores=batch['sample_scores'], 
+                          n_inference_steps=40, save_images=True)
 
         path = f'{model.config.log_dir}/None_latest_val_{model.seed}_{model.total_steps}.png'
         combine_images_side_by_side(batch['sample_pixels'][0] + [Image.open(path)], scores=batch['sample_scores'][0]).save(f'./scratch/combined_{ind}_0.png')
