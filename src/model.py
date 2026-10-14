@@ -214,7 +214,7 @@ class Zoo(torch.nn.Module):
                   generator=None,
                   n_inference_steps=4,):
         assert embeds.shape[0] == 1, f'Must be batch size of 1. {embeds.shape=}'
-        width, height = self.config.resolution if not width_height else width_height[0], width_height[1]
+        width, height = self.config.resolution if not width_height else width_height
         offload_vae_back_to_cpu = False
 
         # infer vae device from all params
@@ -241,7 +241,7 @@ class Zoo(torch.nn.Module):
     @torch.no_grad()
     def do_qual_val(self, pref_history_images, guidance_scale=4, 
                     sample_scores: list[list] = None, target_scores: list = None, 
-                    save_images=False, n_inference_steps=4,
+                    save_images=False, n_inference_steps=4, seeds=None,
                     step_n=None):
         
         # we do batch_size=1 evaluation for now
@@ -272,8 +272,10 @@ class Zoo(torch.nn.Module):
             semantic_embeds = torch.nn.functional.pad(
                 semantic_embeds, (0, 0, 0, self.config.k - semantic_embeds.shape[1] + 1))
 
+        if seeds is None:
+            seeds = [self.seed, self.seed+1]
         images_out = []
-        for ind in [self.seed, self.seed+1]:
+        for ind in seeds:
             width, height = self.config.resolution
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
             image = self.inference(semantic_embeds, guidance_scale, (width, height),

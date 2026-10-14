@@ -121,7 +121,7 @@ def run_eval(path=None,
     max_samples = 8
     for ind, batch in zip(range(max_samples), val_dataloader):
         torch.manual_seed(model.seed)
-        model.do_qual_val(batch['sample_pixels'], guidance_scale=11, 
+        model.do_qual_val(batch['sample_pixels'], guidance_scale=14, 
                           sample_scores=batch['sample_scores'], 
                           n_inference_steps=40, save_images=True)
 

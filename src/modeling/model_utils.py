@@ -56,8 +56,10 @@ class ScoreEmbedding(torch.nn.Module):
 
     # TODO infer device, not default to cuda
     def forward(self, score, device='cuda', condition=None):
-        # TODO don't snap to int
-        # score-1 so we are 0-indexed.
+        # TODO don't snap to int; support N/A class
+        # score - 1 so we are 0-indexed.
+        assert score.max() <= 5 and score.min() >= 1, (f'max ({score.max()}) must be < 5 '
+                                                   f'and min ({score.min()}) must be > 0')
         score_one_hot = torch.nn.functional.one_hot(torch.Tensor(score-1).to(torch.long),
                                                     num_classes=5).to(device, self.embed_linear.weight.dtype)
         sample = self.embed_linear(score_one_hot)
@@ -74,7 +76,6 @@ class ScoreEmbedding(torch.nn.Module):
             sample = self.post_act(sample)
 
         sample = self.ln(sample)
-
         return sample
 
 
