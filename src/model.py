@@ -324,7 +324,7 @@ class Zoo(torch.nn.Module):
                 if index >= max_val_steps:
                     break
             qual_images = self.do_qual_val(batch['sample_pixels'], 
-                        n_inference_steps=n_inference_steps, 
+                        save_images=True, n_inference_steps=n_inference_steps,
                         step_n=step_n)
             return sum(losses) / len(losses), qual_images
 
