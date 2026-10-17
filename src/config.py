@@ -62,8 +62,8 @@ class Config:
     activation_checkpointing: bool = True
 
     ### Data
-    data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_train.json'
-    val_data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_val_unseen.json'
+    data_path: str = './PAMELA/annotations/pamela_train.json'
+    val_data_path: str = './PAMELA/annotations/pamela_val_unseen.json'
     num_workers: int = 20
     # width & height side lengths
     resolution: tuple[int, int] = (512, 512)
