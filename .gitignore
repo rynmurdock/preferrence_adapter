@@ -17,3 +17,6 @@ words_cache.txt
 **/__pycache__/**
 last_epoch_ckpt copy/
 PrefBench/
+checkpoints/
+!docs/results/**
+docs/results/**/*.pt
