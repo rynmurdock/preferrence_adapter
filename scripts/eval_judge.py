@@ -1,7 +1,8 @@
 '''
 Test the persona judge on held-out core images 
 Output: docs/results/S2_judge/.
-Run with: python scripts/eval_judge.py [--personas c03_abstract c06_food ...]'''
+Run with: python scripts/eval_judge.py [--personas c03_abstract c06_food ...]
+'''
 
 import os, argparse, collections
 import numpy as np
