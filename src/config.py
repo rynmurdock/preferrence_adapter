@@ -72,6 +72,10 @@ class Config:
     exp_name: str = None
     save_path: str = './'
     freq: int = 100 # how often we save/log/etc.
+    # persona validation (src/metrics/persona_suite.py) at every validation; an empty list turns it off
+    val_personas: list = field(default_factory=lambda: ['c06_food', 'c05_product', 'c02_architecture', 'c09_cinematic'])
+    val_seeds: list = field(default_factory=lambda: [0, 1, 2])
+    val_tests: list = field(default_factory=lambda: ['T1', 'T2'])
 
     def to_json(self, filename):
         # we don't want to mutate our actual class
