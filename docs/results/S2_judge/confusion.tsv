@@ -1,0 +1,14 @@
+# 1105 held-out core images, 12 personas: accuracy 0.907, none rate 0.062, nearest-centre accuracy 0.959
+true \ judged	c00_cityscape	c01_landscape	c02_architecture	c03_abstract	c04_fashion	c05_product	c06_food	c07_flower_painting	c08_portrait	c09_cinematic	c10_sports	c11_still_life	None
+c00_cityscape	195	0	0	0	0	0	0	1	0	2	0	3	20
+c01_landscape	0	100	1	0	0	0	0	0	0	4	1	0	4
+c02_architecture	0	2	84	0	0	0	0	0	0	1	0	0	3
+c03_abstract	0	0	0	96	1	0	0	0	0	0	0	1	9
+c04_fashion	0	0	0	0	54	4	0	0	0	0	0	0	4
+c05_product	0	0	0	0	0	68	0	0	0	0	0	0	3
+c06_food	0	0	0	0	0	0	75	0	0	0	1	0	1
+c07_flower_painting	3	0	0	0	0	0	0	100	3	0	0	0	8
+c08_portrait	1	0	0	0	0	0	0	0	89	0	0	0	8
+c09_cinematic	0	0	1	0	1	0	0	0	0	54	0	0	3
+c10_sports	0	0	3	0	0	0	0	0	0	0	34	0	1
+c11_still_life	0	0	0	0	0	0	0	0	0	0	0	53	5
