@@ -52,6 +52,7 @@ class ScoreEmbedding(torch.nn.Module):
             torch.nn.init.normal_(self.embed_linear.weight)
 
         self.ln = torch.nn.LayerNorm(time_embed_dim_out)
+        self.out_lin = torch.nn.Linear(time_embed_dim_out, time_embed_dim_out,)
 
 
     # TODO infer device, not default to cuda
@@ -76,6 +77,7 @@ class ScoreEmbedding(torch.nn.Module):
             sample = self.post_act(sample)
 
         sample = self.ln(sample)
+        sample = self.out_lin(sample)
         return sample
 
 

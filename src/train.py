@@ -107,12 +107,6 @@ Training {len(trained_params)} torch modules
                 logging.warning(f'Skipping batch! {batch}')
                 continue
 
-            images = batch['target_pixels']
-            try:
-                embeds = model.process_inputs(batch)
-            except Exception as e:
-                logging.warning(f'{e} when getting semantic embeddings')
-
             if total_inds % config.freq == 0:
                 # NOTE autocasting because our fp32 training model is also our val model
                 val_loss, qual_images = model.val(val_dataloader, config.max_val_steps, 
@@ -133,7 +127,7 @@ Training {len(trained_params)} torch modules
                         writer.add_scalar('loss/train', avg_train_loss, total_inds)
                     inner_train_losses = []
 
-                plt.plot(train_losses, label='Train')
+                # plt.plot(train_losses, label='Train')
                 plt.plot(validation_losses, label='Validation')
                 plt.legend()
                 plt.savefig(log_dir + f'/{total_inds}_loss_curve.jpg')
@@ -144,8 +138,8 @@ Training {len(trained_params)} torch modules
                     train_losses = []
                     validation_losses = []
 
-
-            loss, loss_logging_dict = get_loss(model, embeds, images, config=config,)
+            images = batch['target_pixels']
+            loss, loss_logging_dict = get_loss(model, batch, images, config=config,)
             inner_train_losses.append(loss.item())
             loss.backward()
             # max_norm=inf so this only measures the gradient norm, never clips

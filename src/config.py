@@ -19,7 +19,7 @@ class Config:
     # number of conditioning sample images with scores
     k: int = 32
 
-    lora_rank: int = 8
+    lora_rank: int = 16
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
@@ -31,9 +31,9 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 4
+    batch_size: int = 1
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 2e-5
+    lr: float = 4e-5
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
@@ -58,7 +58,7 @@ class Config:
 
     # specifically for *mixed precision*
     # we parse torch dtypes to str on saving & then back on loading for simplicity
-    dtype: torch.dtype = field(default=torch.bfloat16, repr=False)
+    dtype: torch.dtype = field(default=torch.float32, repr=False)
     activation_checkpointing: bool = True
 
     ### Data
