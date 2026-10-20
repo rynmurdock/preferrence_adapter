@@ -12,9 +12,10 @@ T3  score flip: T1's histories, all rated 1.
 
 Run with: python scripts/validate.py --load_path checkpoints/ryan_oct14_step39200
 '''
-import argparse, os, random
+import argparse, os
 import numpy as np
 import torch
+torch.set_float32_matmul_precision('high')   # same matmul precision as src/train.py
 from safetensors.torch import load_file
 from config import main_config as config
 from model import get_model_and_tokenizer
@@ -54,49 +55,22 @@ active = model.pipe.transformer.orig_transformer.active_adapters()
 report.append(f'T0 active LoRA: {active}')
 assert ok and not missing and active == ['default'], 'T0 failed:\n' + '\n'.join(report)
 
-# Histories: 32 held-out images per persona, always the same ones. T2 mixes them, 8 from each persona.
-from personas import load_personas, image_groups, select_personas
-train = set(image_groups(['train']))
-own = {n: random.Random(0).sample(sorted(p for p in m if p not in train), config.k)
-       for n, m in load_personas(args.personas).items()}
-mixed = [own[n][i] for i in range(config.k) for n in args.personas][:config.k]
-histories = {}
-for n in args.personas:
-    histories['T1', n] = own[n], [5] * config.k
-    histories['T2', n] = mixed, [5 if p in own[n] else 1 for p in mixed]
-    histories['T3', n] = own[n], [1] * config.k
-
-# Generate each history at each seed with Ryan's sampler, asking for a 5, then judge the images
-from PIL import Image
-from metrics.persona_judge import PersonaJudge
-images = {}
-for (test, n), (paths, scores) in histories.items():
-    history = [Image.open(f'PAMELA/{p}').convert('RGB') for p in paths]
-    for s in args.seeds:
-        images[test, n, s] = model.do_qual_val(history, args.guidance, sample_scores=scores, target_scores=[5],
-                                               seeds=[s], n_inference_steps=args.steps)[0]
+# Histories (32 held-out images per persona; T2 mixes them), generated at each seed with Ryan's sampler, then judged
+from metrics.persona_suite import histories, generate, make_judge, hits_and_p
+P = args.personas
+images = generate(model, histories(P, config.k), args.seeds, args.guidance, args.steps)
 del model
 torch.cuda.empty_cache()
-# judge among all the large personas, not just the tested ones: an image that looks like something else
-# (a landscape, say) gets that label and counts as a miss, instead of being forced into one of the four
-judge = PersonaJudge(sorted(set(select_personas()) | set(args.personas)), 'cuda')
+judge = make_judge(P, 'cuda')
 report.append(f'Judge chooses among {len(judge.names)} personas')
 keys = list(images)
 verdict = dict(zip(keys, judge([images[k] for k in keys])[0]))
 
 # Hit rate, and how often shuffling the personas within each seed does as well (exact, over all shuffles)
-from itertools import permutations
-P = args.personas
 for test in ['T1', 'T2', 'T3']:
-    hits = sum(verdict[test, n, s] == n for n in P for s in args.seeds)
-    null = np.array([1.0])
-    for s in args.seeds:
-        counts = np.bincount([sum(verdict[test, n, s] == m for n, m in zip(P, perm)) for perm in permutations(P)],
-                             minlength=len(P) + 1)
-        null = np.convolve(null, counts / counts.sum())
-    total = len(P) * len(args.seeds)
+    hits, total, p = hits_and_p(verdict, P, args.seeds, test)
     what = 'retention of the disliked persona' if test == 'T3' else 'hit rate'
-    report.append(f'{test} {what} {hits / total:.3f} ({hits}/{total}), exact permutation p {null[hits:].sum():.4f}')
+    report.append(f'{test} {what} {hits / total:.3f} ({hits}/{total}), exact permutation p {p:.4f}')
 
 # How much the image changes (mean pixel difference, 0-255) with the seed, the persona, and the score flip
 from itertools import combinations
@@ -110,7 +84,7 @@ flip = [mad(images['T1', n, s], images['T3', n, s]) for n in P for s in args.see
 report.append(f'T1 vs T3 (all 5 -> all 1), same persona and seed: {np.mean(flip):.1f}')
 
 # Save the report, the verdicts, and one grid per test (rows = seeds, columns = personas)
-from PIL import ImageDraw
+from PIL import Image, ImageDraw
 open(f'{OUT}/validate.txt', 'w').write('\n'.join(report) + '\n')
 with open(f'{OUT}/verdicts.tsv', 'w') as f:
     f.write('test\tpersona\tseed\tverdict\n')
