@@ -31,7 +31,7 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 1
+    batch_size: int = 2
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
     lr: float = 4e-5
 
@@ -71,7 +71,7 @@ class Config:
     ### Logging
     exp_name: str = None
     save_path: str = './'
-    freq: int = 100 # how often we save/log/etc.
+    freq: int = 1000 # how often we save/log/etc.
 
     def to_json(self, filename):
         # we don't want to mutate our actual class

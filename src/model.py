@@ -191,7 +191,7 @@ class Zoo(torch.nn.Module):
             timesteps = timesteps.to(torch.float16)
             prompt_embeds = prompt_embeds.to(torch.float16) if prompt_embeds is not None else None
 
-        # account for text first in sequence; sum for just the [B, L], make boolean
+        # account for text  first in sequence; sum for just the [B, L], make boolean
         if latents_attention_mask is not None:
             latents_attention_mask = latents_attention_mask.sum(-1)
             attention_mask = torch.concat([prompt_embeds_attn_mask, latents_attention_mask], -1) != 0.
