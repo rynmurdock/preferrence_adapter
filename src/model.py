@@ -43,12 +43,17 @@ def ids_encode_pad_mask_images(model, images, dtype):
         latent_ids = torch.nn.utils.rnn.pad_sequence(latent_ids, batch_first=True).squeeze(1)
         return padded_latents, image_ids, latent_ids, latents_there_mask
 
-def get_loss(model, embeds, images, config, dtype=None,):
+def get_loss(model, batch, images, config, dtype=None,):
+    embeds = model.process_inputs(batch)
     sample_teacher = config.sample_teacher
     dtype = model.dtype if not dtype else dtype
     with torch.no_grad():
-        # rng drop out inputs
+        # rng drop out inputs by sample
         zeroing_mask = torch.rand((embeds.shape[0],)) < .2
+        embeds[zeroing_mask] = 0
+
+        # rng drop out inputs by token
+        zeroing_mask = torch.rand((embeds.shape[0], embeds.shape[1])) < .2
         embeds[zeroing_mask] = 0
 
         # now we do no masking on embeddings: we just pad to max
@@ -58,7 +63,6 @@ def get_loss(model, embeds, images, config, dtype=None,):
         )
         
         embeds_ids = model.pipe._prepare_text_ids(embeds).to(model.device)
-
         x0, typical_image_ids, latent_ids, latents_there_mask = ids_encode_pad_mask_images(model, 
                                                                        images, model.config.dtype)
 
@@ -172,6 +176,7 @@ class Zoo(torch.nn.Module):
             embeds = self.semantic_encoder_model.get_image_features(**inputs,
                                                                     output_hidden_states=True,
                                                                     ).hidden_states[-3].mean(-2)
+            embeds = embeds / torch.nn.functional.normalize(embeds, dim=-1)
             # citation for using intermediate not last
             embeds_batch.append(embeds)
         embeds_batch = torch.stack(embeds_batch)
@@ -186,7 +191,7 @@ class Zoo(torch.nn.Module):
             timesteps = timesteps.to(torch.float16)
             prompt_embeds = prompt_embeds.to(torch.float16) if prompt_embeds is not None else None
 
-        # account for text first in sequence; sum for just the [B, L], make boolean
+        # account for text  first in sequence; sum for just the [B, L], make boolean
         if latents_attention_mask is not None:
             latents_attention_mask = latents_attention_mask.sum(-1)
             attention_mask = torch.concat([prompt_embeds_attn_mask, latents_attention_mask], -1) != 0.
@@ -290,14 +295,13 @@ class Zoo(torch.nn.Module):
 
     def process_inputs(self, batch):
         # target score goes first
-
         # TODO for varying prompts, we should put the 
         #   prompt after the embeddings to keep 0th instance as target score
         embeds = self.get_semantic_embeds(batch['sample_pixels'])
+
         # target embed only holds our score embedding for the to-predict image
         target_embed = embeds.new_zeros(len(embeds), 1, embeds.shape[-1])
         embeds = torch.cat([target_embed, embeds], 1)
-
         scores = torch.cat([batch['target_scores'], batch['sample_scores']], 1)
         embeds = self.enrich_with_preference_embedding(embeds, scores)
         return embeds
@@ -317,8 +321,7 @@ class Zoo(torch.nn.Module):
                     continue
 
                 target_images = batch['target_pixels']
-                embeds = self.process_inputs(batch)
-                loss, loss_logging_dict = get_loss(self, embeds, target_images, 
+                loss, loss_logging_dict = get_loss(self, batch, target_images, 
                                                    config=self.config,)
                 losses.append(loss.item())
                 if index >= max_val_steps:
