@@ -1,0 +1,12 @@
+T0 adapter.pt: 24 tensors in file, 24 in model, 24 identical
+T0 LoRA: 80 tensors in file, 80 in model, 80 identical
+T0 model: 104 trained tensors, 0 not in the checkpoint
+T0 active LoRA: ['default']
+Judge chooses among 12 personas
+T1 hit rate 0.156 (5/32), exact permutation p 0.2500
+T2 hit rate 0.094 (3/32), exact permutation p 0.9167
+T3 retention of the disliked persona 0.094 (3/32), exact permutation p 0.7917
+T1 image change: across seeds 72.9, across personas at the same seed 11.3
+T2 image change: across seeds 73.8, across personas at the same seed 9.3
+T3 image change: across seeds 76.4, across personas at the same seed 14.6
+T1 vs T3 (all 5 -> all 1), same persona and seed: 27.4

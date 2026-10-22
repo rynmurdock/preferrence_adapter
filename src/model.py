@@ -229,7 +229,7 @@ class Zoo(torch.nn.Module):
 
         # we may use cfg on our cond image
         self.pipe.config.is_distilled = False
-        with torch.autocast('cuda'):
+        with torch.autocast(device_type='cuda', dtype=self.dtype):  # was fp16 by default; match training (bf16)
             image = self.pipe(
                 num_inference_steps=n_inference_steps,
                 guidance_scale=guidance_scale,

@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 from data import get_dataloader, get_demographic_vocab
 from config import main_config, verify_config_validity
 from model import get_model_and_tokenizer, get_optimizer_and_lr_sched, get_loss
+from metrics.quality import AestheticScorer
 from utils.exp_logging import setup_log_dir
 
 logging.basicConfig(level=logging.INFO)
@@ -46,6 +47,12 @@ Setting up our logging directory at {log_dir} !
                         format=f"[ {log_dir} ] %(message)s",
                         force=True)
     writer = SummaryWriter(log_dir)
+    aesthetic = AestheticScorer(config.device)
+    # persona validation: histories and judge never change, so build them once
+    if config.val_personas:
+        from metrics.persona_suite import histories, generate, make_judge, hits_and_p
+        val_H = {key: h for key, h in histories(config.val_personas, config.k).items() if key[0] in config.val_tests}
+        judge = make_judge(config.val_personas, config.device)
 
 
     np.random.seed(config.seed)
@@ -113,8 +120,20 @@ Training {len(trained_params)} torch modules
                     config.dtype, step_n=total_inds, n_inference_steps=config.n_inference_steps, )
                 logging.info(f'{val_loss=:.4f}')
                 writer.add_scalar('loss/val', val_loss, total_inds)
+                writer.add_scalar('quality/aesthetic', sum(aesthetic(qual_images)) / len(qual_images), total_inds)
                 for i, qual_image in enumerate(qual_images):
                     writer.add_image(f'qual/sample_{i}', np.array(qual_image), total_inds, dataformats='HWC')
+                if config.val_personas:
+                    pers_images = generate(model, val_H, config.val_seeds, steps=config.n_inference_steps)
+                    keys = list(pers_images)
+                    verdict = dict(zip(keys, judge([pers_images[k] for k in keys])[0]))
+                    for test in config.val_tests:
+                        hits, total, p = hits_and_p(verdict, config.val_personas, config.val_seeds, test)
+                        writer.add_scalar(f'pers/{test}_hit_rate', hits / total, total_inds)
+                        writer.add_scalar(f'pers/{test}_p', p, total_inds)
+                        grid = np.concatenate([np.concatenate([np.array(pers_images[test, n, s].resize((256, 256)))
+                                               for n in config.val_personas], 1) for s in config.val_seeds], 0)
+                        writer.add_image(f'pers/{test}_grid', grid, total_inds, dataformats='HWC')
                 if torch.cuda.is_available():
                     writer.add_scalar('sys/gpu_mem_allocated_gb', torch.cuda.memory_allocated() / 2**30, total_inds)
                     writer.add_scalar('sys/gpu_mem_reserved_gb', torch.cuda.max_memory_reserved() / 2**30, total_inds)
