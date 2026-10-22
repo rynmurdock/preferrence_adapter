@@ -5,6 +5,13 @@ import inspect
 from diffusers.models.transformers.transformer_flux2 import Flux2SingleTransformerBlock
 
 
+def repair_state_dict_keys(state_dict, strip='_orig_mod.'):
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        new_state_dict[k.replace(strip, '')] = v
+    return new_state_dict
+
+
 class ScoreEmbedding(torch.nn.Module):
     def __init__(
         self,
@@ -39,12 +46,21 @@ class ScoreEmbedding(torch.nn.Module):
 
         # we use one-hot to make our own linear,
         #   as nn.Embedding is apt to break on distributed training
-        self.embed_linear = torch.nn.Linear(5, out_dim)
+        self.embed_linear = torch.nn.Linear(5, out_dim,)
+
+        with torch.no_grad():
+            torch.nn.init.normal_(self.embed_linear.weight)
+
+        self.ln = torch.nn.LayerNorm(time_embed_dim_out)
+        self.out_lin = torch.nn.Linear(time_embed_dim_out, time_embed_dim_out,)
+
 
     # TODO infer device, not default to cuda
     def forward(self, score, device='cuda', condition=None):
-        # TODO don't snap to int
-        # score-1 so we are 0-indexed.
+        # TODO don't snap to int; support N/A class
+        # score - 1 so we are 0-indexed.
+        assert score.max() <= 5 and score.min() >= 1, (f'max ({score.max()}) must be < 5 '
+                                                   f'and min ({score.min()}) must be > 0')
         score_one_hot = torch.nn.functional.one_hot(torch.Tensor(score-1).to(torch.long),
                                                     num_classes=5).to(device, self.embed_linear.weight.dtype)
         sample = self.embed_linear(score_one_hot)
@@ -59,6 +75,9 @@ class ScoreEmbedding(torch.nn.Module):
 
         if self.post_act is not None:
             sample = self.post_act(sample)
+
+        sample = self.ln(sample)
+        sample = self.out_lin(sample)
         return sample
 
 
@@ -101,8 +120,8 @@ class SemanticEmbedsKlein(torch.nn.Module):
         # TODO take in siglip config's embed size through its config
         self.adapter = torch.nn.ModuleList([
                 SemanticFlux2SingleTransformerBlock(
-                    dim=512,  # = num_attention_heads * attention_head_dim. 512 keeps heads*dim_head == dim and avoids override
-                    num_attention_heads=4,
+                    dim=512,
+                    num_attention_heads=16,
                     attention_head_dim=128,
                     mlp_ratio=2,
                     eps=1e-6,
@@ -131,18 +150,20 @@ class SemanticEmbedsKlein(torch.nn.Module):
             for a in self.adapter:
                 hidden_states = a(
                     hidden_states=hidden_states,
-                    rotary_emb=sem_emb_rotary_embeds, # TODO just use max truncate here?
-                    # TODO cut to length of content, not 8
+                    rotary_emb=sem_emb_rotary_embeds, 
+                    # NOTE we're just padding to max & seeing all
                     joint_attention_kwargs={'attention_mask': prompt_embeds_attn_mask},
                     )
             hidden_states = self.out_linear(hidden_states)
+
+            # prepend our cached text prompt
             if not cached_prompt is None:
-                hidden_states = torch.cat([cached_prompt.expand(len(hidden_states), -1, -1)[:, :8], 
+                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :512-self.k-1], 
                     hidden_states], 1)
-                kwargs['txt_ids'] = self.cached_txt_ids[:, :8+self.k+1]
+                kwargs['txt_ids'] = self.cached_txt_ids
                 if not kwargs['joint_attention_kwargs'] is None:
                     att_mask = kwargs['joint_attention_kwargs']['attention_mask']
-                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :8] > 0, 
+                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :512-self.k-1] > 0, 
                         att_mask], 1)
                     kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
             kwargs['encoder_hidden_states'] = hidden_states
@@ -160,6 +181,19 @@ def add_single_stream_embedding_adapter(transformer):
     new_transformer.config = transformer.config
     new_transformer.cache_context = transformer.cache_context
     return new_transformer
+
+
+def calculate_shift(
+    image_seq_len,
+    base_seq_len: int = 256,
+    max_seq_len: int = 4096,
+    base_shift: float = 0.5,
+    max_shift: float = 1.15,
+):
+    m = (max_shift - base_shift) / (max_seq_len - base_seq_len)
+    b = base_shift - m * base_seq_len
+    mu = image_seq_len * m + b
+    return mu
 
 
 # Copied from diffusers.pipelines.flux2.pipeline_flux2.compute_empirical_mu

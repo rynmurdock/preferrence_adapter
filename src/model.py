@@ -1,4 +1,3 @@
-import os
 import torch
 import logging
 from tqdm import tqdm
@@ -8,7 +7,6 @@ from torchvision.transforms import functional as TF
 
 from diffusers import Flux2KleinPipeline
 from diffusers.models.transformers.transformer_flux2 import Flux2Transformer2DModel
-from diffusers.pipelines.flux2.pipeline_flux2_klein import compute_empirical_mu
 
 from diffusers import BitsAndBytesConfig
 from diffusers.training_utils import compute_density_for_timestep_sampling
@@ -18,46 +16,61 @@ from transformers import AutoModel, AutoProcessor
 import bitsandbytes as bnb
 from peft import LoraConfig
 
-from modeling.model_utils import get_inf_timesteps, add_single_stream_embedding_adapter
+from modeling.model_utils import get_inf_timesteps, add_single_stream_embedding_adapter, repair_state_dict_keys, calculate_shift
 
 def ids_encode_pad_mask_images(model, images, dtype):
     with torch.autocast(device_type='cuda', enabled=True, dtype=dtype):
         latents = []
         image_ids = []
+        latent_ids = []
         for pil_img in images:
             pil_img = pil_img.resize((pil_img.width//16*16, pil_img.height//16*16))
             img_tensor = TF.to_tensor(pil_img) * 2 - 1  # (3, H, W), values in [-1, 1]
             img_tensor = img_tensor.to(model.device, dtype)[None]
             latent = model.pipe._encode_vae_image(img_tensor, None)
-            imids = Flux2KleinPipeline._prepare_latent_ids(latent).to(latent.device)
+            # NOTE: prepare_latent_ids (for noisy latent) is 
+            #     different from prepare_image_ids (for reference image)
+            imids = Flux2KleinPipeline._prepare_image_ids([latent]).to(latent.device)
+            lat_ids = Flux2KleinPipeline._prepare_latent_ids(latent).to(latent.device)
+            latent_ids.append(lat_ids[0])
             image_ids.append(imids[0])
             latents.append(model.pipe._pack_latents(latent)[0])
+            
         padded_latents = torch.nn.utils.rnn.pad_sequence(latents, batch_first=True,).squeeze(1)
         latents_there_mask = torch.nn.utils.rnn.pad_sequence([torch.ones_like(l) for l in latents], 
                                                             batch_first=True, ).squeeze(1) > 0
         image_ids = torch.nn.utils.rnn.pad_sequence(image_ids, batch_first=True).squeeze(1)
-        return padded_latents, image_ids, latents_there_mask
+        latent_ids = torch.nn.utils.rnn.pad_sequence(latent_ids, batch_first=True).squeeze(1)
+        return padded_latents, image_ids, latent_ids, latents_there_mask
 
-def get_loss(model, embeds, images, config, dtype=None,):
+def get_loss(model, batch, images, config, dtype=None,):
+    embeds = model.process_inputs(batch)
     sample_teacher = config.sample_teacher
     dtype = model.dtype if not dtype else dtype
     with torch.no_grad():
-        # rng drop out inputs
-        zeroing_mask = torch.rand((embeds.shape[0], embeds.shape[1])) < .3
+        # rng drop out inputs by sample
+        zeroing_mask = torch.rand((embeds.shape[0],)) < .2
         embeds[zeroing_mask] = 0
 
-        prompt_embeds_attn_mask = torch.nn.utils.rnn.pad_sequence(
-            [torch.ones_like(l) for l in embeds.sum(-1)], batch_first=True, ).squeeze(1) > 0
-        embeds_ids = model.pipe._prepare_text_ids(embeds).to(model.device)
+        # rng drop out inputs by token
+        zeroing_mask = torch.rand((embeds.shape[0], embeds.shape[1])) < .2
+        embeds[zeroing_mask] = 0
 
-        x0, typical_image_ids, latents_there_mask = ids_encode_pad_mask_images(model, 
+        # now we do no masking on embeddings: we just pad to max
+        prompt_embeds_attn_mask = torch.ones_like(
+            torch.nn.utils.rnn.pad_sequence(
+            [torch.ones_like(l) for l in embeds.sum(-1)], batch_first=True, ).squeeze(1) > 0
+        )
+        
+        embeds_ids = model.pipe._prepare_text_ids(embeds).to(model.device)
+        x0, typical_image_ids, latent_ids, latents_there_mask = ids_encode_pad_mask_images(model, 
                                                                        images, model.config.dtype)
 
         noise = torch.randn_like(x0)
         if config.just_inf_timesteps:
-            timesteps = get_inf_timesteps(model.pipe.scheduler, x0, num_inference_steps=4, device=model.device)
+            timesteps = get_inf_timesteps(model.pipe.scheduler, x0, num_inference_steps=config.n_inference_steps, device=model.device)
             k = torch.randint(0, 4, (noise.shape[0],)).to(x0.device)
-            timesteps = timesteps[k]
+            timesteps = timesteps[torch.arange(x0.shape[0]), k]
         else:
             u = compute_density_for_timestep_sampling(
                 weighting_scheme='logit_normal',
@@ -68,13 +81,15 @@ def get_loss(model, embeds, images, config, dtype=None,):
             # shift per sample using its mask for seq len of non-padding
             if config.shift_timesteps_resolution:
                 mus = []
+                # NOTE this ditches compute_empirical_mu
                 for sample_ind in range(noise.shape[0]):
-                   mu = compute_empirical_mu(latents_there_mask[sample_ind].amax(-1).sum(0), 4)
-                   mus.append(mu)
+                    mu = calculate_shift(latents_there_mask[sample_ind].amax(-1).sum(0), )
+                    mus.append(mu)
                 mus = torch.tensor(mus).to(u.device, u.dtype)
                 u = torch.exp(mus) / (torch.exp(mus) + (1 / u - 1) ** 1)
             indices = (u * model.noise_scheduler_copy.config.num_train_timesteps).long()
             timesteps = model.noise_scheduler_copy.timesteps[indices].to(device=x0.device)
+
         sigma = timesteps.view(-1, 1, 1) / 1000
         latents = sigma * noise + (1 - sigma) * x0
 
@@ -83,7 +98,7 @@ def get_loss(model, embeds, images, config, dtype=None,):
                 model.pipe.transformer.orig_transformer.disable_lora()
             
             latent_model_input = torch.cat([latents, x0], dim=1).to(model.pipe.transformer.dtype)
-            latent_image_ids = torch.cat([typical_image_ids, typical_image_ids], dim=1)
+            latent_image_ids = torch.cat([latent_ids, typical_image_ids], dim=1)
             teacher_noise_pred = model(latent_model_input, 
                        timesteps=timesteps, image_ids=latent_image_ids, 
                        prompt_embeds=model.pipe.cached_teacher_prompt,
@@ -99,7 +114,7 @@ def get_loss(model, embeds, images, config, dtype=None,):
 
     with torch.autocast(device_type='cuda', enabled=not config.quantize_model, dtype=dtype):
         latent_model_input = torch.cat([latents], dim=1).to(model.pipe.transformer.dtype)
-        latent_image_ids = torch.cat([typical_image_ids], dim=1)
+        latent_image_ids = latent_ids
 
         output = model(latent_model_input, 
                        timesteps=timesteps, image_ids=latent_image_ids,
@@ -120,7 +135,9 @@ def get_loss(model, embeds, images, config, dtype=None,):
     # mask anywhere we don't have contents
     loss[~latents_there_mask] = 0
     # mean over batch last
-    loss = loss.flatten(1).mean(1).mean()
+    loss = loss.flatten(1).sum(1) / latents_there_mask.flatten(1).sum(1)
+    loss = loss.mean()
+
 
     logging_dict = {'mse_loss': loss.item(),}
     return loss, logging_dict
@@ -148,7 +165,7 @@ class Zoo(torch.nn.Module):
         # TODO can make improvements here
         embeds = embeds + self.pipe.transformer.score_embedder(scores)
         return embeds
-        
+
 
     @torch.no_grad()
     def get_semantic_embeds(self, batch_images: list[list]):
@@ -159,6 +176,7 @@ class Zoo(torch.nn.Module):
             embeds = self.semantic_encoder_model.get_image_features(**inputs,
                                                                     output_hidden_states=True,
                                                                     ).hidden_states[-3].mean(-2)
+            embeds = embeds / torch.nn.functional.normalize(embeds, dim=-1)
             # citation for using intermediate not last
             embeds_batch.append(embeds)
         embeds_batch = torch.stack(embeds_batch)
@@ -173,7 +191,7 @@ class Zoo(torch.nn.Module):
             timesteps = timesteps.to(torch.float16)
             prompt_embeds = prompt_embeds.to(torch.float16) if prompt_embeds is not None else None
 
-        # account for text first in sequence; sum for just the [B, L], make boolean
+        # account for text  first in sequence; sum for just the [B, L], make boolean
         if latents_attention_mask is not None:
             latents_attention_mask = latents_attention_mask.sum(-1)
             attention_mask = torch.concat([prompt_embeds_attn_mask, latents_attention_mask], -1) != 0.
@@ -198,12 +216,13 @@ class Zoo(torch.nn.Module):
                   embeds, 
                   guidance_scale=1.2,
                   width_height=None, 
-                  generator=None):
+                  generator=None,
+                  n_inference_steps=4,):
         assert embeds.shape[0] == 1, f'Must be batch size of 1. {embeds.shape=}'
-        width, height = self.config.resolution if not width_height else width_height[0], width_height[1]
+        width, height = self.config.resolution if not width_height else width_height
         offload_vae_back_to_cpu = False
 
-        # infer vae device from the all params
+        # infer vae device from all params
         if any([p.device != torch.device('cuda:0') for p in self.pipe.vae.parameters()]):
             offload_vae_back_to_cpu = True
             self.pipe.vae = self.pipe.vae.to('cuda')
@@ -212,8 +231,7 @@ class Zoo(torch.nn.Module):
         self.pipe.config.is_distilled = False
         with torch.autocast('cuda'):
             image = self.pipe(
-                # just smuggling for our image ids
-                num_inference_steps=4,
+                num_inference_steps=n_inference_steps,
                 guidance_scale=guidance_scale,
                 prompt_embeds=embeds,
                 negative_prompt_embeds=torch.zeros_like(embeds),
@@ -226,8 +244,10 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=1.2, 
-                    sample_scores: list[list] = None, target_scores: list = None, save_images=True):
+    def do_qual_val(self, pref_history_images, guidance_scale=4, 
+                    sample_scores: list[list] = None, target_scores: list = None, 
+                    save_images=False, n_inference_steps=4, seeds=None,
+                    step_n=None):
         
         # we do batch_size=1 evaluation for now
         if isinstance(pref_history_images[0], list):
@@ -240,31 +260,36 @@ class Zoo(torch.nn.Module):
         semantic_embeds = torch.cat([target_embed, semantic_embeds], 1)
 
         # TODO use sample & target scores
-        if not target_scores:
+        if target_scores is None:
             logging.warning(f'No target score provided -- setting to 5 (love)')
             target_scores = [5]
-        if not sample_scores:
+        if sample_scores is None:
             logging.warning(f'No scores provided -- giving 5s (love) on all')
             sample_scores = [5]*(semantic_embeds.shape[1]-1)
-
-        assert semantic_embeds.shape[1] == len(sample_scores) + len(target_scores), (
-            f'{semantic_embeds.shape}[1] != {len(sample_scores)} + {len(target_scores)}')
+        else:
+            if isinstance(sample_scores[0], torch.Tensor): 
+                sample_scores = sample_scores[0].numpy().tolist()
 
         scores = torch.tensor(target_scores + sample_scores)
         semantic_embeds = self.enrich_with_preference_embedding(semantic_embeds, scores)
+        # NOTE we're just padding to max & seeing all
         if semantic_embeds.shape[1] < self.config.k:
             semantic_embeds = torch.nn.functional.pad(
                 semantic_embeds, (0, 0, 0, self.config.k - semantic_embeds.shape[1] + 1))
 
+        if seeds is None:
+            seeds = [self.seed, self.seed+1]
         images_out = []
-        for ind in [self.seed, self.seed+1]:
+        for ind in seeds:
             width, height = self.config.resolution
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
             image = self.inference(semantic_embeds, guidance_scale, (width, height),
-                                   latent_seed_generator)
-            logging.info(f'Saving at {self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
+                                   latent_seed_generator, n_inference_steps)
+            logging.info(f'Saving at {self.config.log_dir}/{step_n}_latest_val_{ind}_{self.total_steps}.png')
             if save_images:
-                image.save(f'{self.config.log_dir}/latest_val_{ind}_{self.total_steps}.png')
+                image.save(f'{self.config.log_dir}/{step_n}_latest_val_{ind}_{self.total_steps}.png')
+                for ind, pref_im in enumerate(pref_history_images[0]):
+                    pref_im.save(f'{ind}_pref_im.png')
             images_out.append(image)
         return images_out
 
@@ -273,6 +298,7 @@ class Zoo(torch.nn.Module):
         # TODO for varying prompts, we should put the 
         #   prompt after the embeddings to keep 0th instance as target score
         embeds = self.get_semantic_embeds(batch['sample_pixels'])
+
         # target embed only holds our score embedding for the to-predict image
         target_embed = embeds.new_zeros(len(embeds), 1, embeds.shape[-1])
         embeds = torch.cat([target_embed, embeds], 1)
@@ -282,7 +308,7 @@ class Zoo(torch.nn.Module):
 
     
     @torch.no_grad()
-    def val(self, val_dataloader, max_val_steps, dtype):
+    def val(self, val_dataloader, max_val_steps, dtype, step_n=None, n_inference_steps=4):
         logging.info(f'\nRunning validation for max {max_val_steps}\n')
         # fork_rng temporarily isolates changes
         with torch.random.fork_rng():
@@ -295,17 +321,14 @@ class Zoo(torch.nn.Module):
                     continue
 
                 target_images = batch['target_pixels']
-                embeds = self.process_inputs(batch)
-                loss, loss_logging_dict = get_loss(self, embeds, target_images, 
+                loss, loss_logging_dict = get_loss(self, batch, target_images, 
                                                    config=self.config,)
                 losses.append(loss.item())
                 if index >= max_val_steps:
-                    # NOTE: previously this qual-image call sat unreachably after the loop,
-                    #   since we always return before exhausting val_dataloader -- moved here
-                    #   so it actually runs every val() call
-                    qual_images = self.do_qual_val(batch['sample_pixels'])
-                    return sum(losses) / len(losses), qual_images
-            qual_images = self.do_qual_val(batch['sample_pixels'])
+                    break
+            qual_images = self.do_qual_val(batch['sample_pixels'], 
+                        save_images=True, n_inference_steps=n_inference_steps,
+                        step_n=step_n)
             return sum(losses) / len(losses), qual_images
 
 
@@ -329,11 +352,10 @@ def add_lora(transformer, rank, target_modules):
 
 @torch.no_grad()
 def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
-    global Flux2KleinPipeline
-    
     transformer = Flux2Transformer2DModel.from_pretrained("black-forest-labs/FLUX.2-klein-4B" if path is None
                                                            else path, # we save without a subdir
-                                                           subfolder=None if path else 'transformer',
+                                                           # bfl prefix as a heuristic for "contains full model set"
+                                                           subfolder='transformer' if 'black-forest-lab' in path else None,
                                                            torch_dtype=dtype,
                                                            quantization_config=BitsAndBytesConfig(load_in_8bit=True,) if config.quantize_model else None,
                                                            strict=False)
@@ -404,8 +426,6 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     pipe.transformer.in_linear = pipe.transformer.in_linear.to(dtype)
     pipe.transformer.out_linear = pipe.transformer.out_linear.to(dtype)
     pipe.transformer.score_embedder = pipe.transformer.score_embedder.to(dtype)
-    if do_compile:
-        pipe.transformer = torch.compile(pipe.transformer)
 
     pipe.transformer.cached_prompt = pipe.cached_prompt
     pipe.transformer.cached_txt_ids = pipe.cached_txt_ids
@@ -415,9 +435,13 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     # we load the LoRA early but apply the adapter in __init__
     if config.load_path:
         adapter_states = torch.load(f'{config.load_path}/adapter.pt', map_location='cpu')
+        adapter_states = repair_state_dict_keys(adapter_states)
         missing, unexpected = model.pipe.transformer.load_state_dict(adapter_states, strict=False)
         assert not unexpected, f'Unexpected keys in adapter checkpoint: {unexpected}'
     model.pipe.transformer = model.pipe.transformer.to(device)
+    if do_compile:
+        pipe.transformer = torch.compile(pipe.transformer)
+
     return model
 
 def get_optimizer_and_lr_sched(params, lr, config):
@@ -425,5 +449,5 @@ def get_optimizer_and_lr_sched(params, lr, config):
         optimizer = bnb.optim.PagedAdamW8bit(params, lr=lr)
     else:
         optimizer = torch.optim.AdamW(params, lr=lr)
-    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, end_factor=.2, total_iters=800)
+    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, end_factor=.5, total_iters=800)
     return optimizer, scheduler

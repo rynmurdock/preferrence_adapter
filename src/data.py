@@ -125,8 +125,8 @@ def my_collate(batch):
 
         target_scores = torch.stack([torch.tensor(s['target_scores']) 
                                                   for s in batch])
-        sample_scores = torch.stack([torch.tensor(s['sample_scores']) 
-                                                  for s in batch])
+        l_sample_scores = [torch.tensor(s['sample_scores']) for s in batch]
+        sample_scores = torch.nn.utils.rnn.pad_sequence(l_sample_scores, batch_first=True).squeeze(1)
         sample_prompts = [s['sample_prompts'] for s in batch]
         input_prompts = [s['input_prompt'] for s in batch]
 
@@ -296,7 +296,7 @@ def remove_empty_dirs(path_to_folders):
 
 def get_dataloader(data_path, val_data_path, 
                    batch_size, num_workers, k, demographic_vocab=None):
-    val_batch_size = batch_size
+    val_batch_size = 1
 
     # TODO add back!
     # if demographic_vocab is None:

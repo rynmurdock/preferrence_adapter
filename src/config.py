@@ -12,15 +12,15 @@ from copy import deepcopy
 class Config:
     ### Model
     # model_path = None
-    transformer_model_path = None
+    transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
     load_path = None
 
     seed: int = 13
     # number of conditioning sample images with scores
     k: int = 32
 
-    lora_rank: int = None
-    sample_teacher: bool = True
+    lora_rank: int = 16
+    sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
     #   so this does nothing if just_inf_timesteps=False
@@ -31,13 +31,14 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 4
+    batch_size: int = 2
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 1e-4
+    lr: float = 4e-5
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
 
+    n_inference_steps: int = 50
 
     # mainly acts as attention sink, keeping in-domain
     use_prompt: str = 'The scene.'
@@ -48,29 +49,29 @@ class Config:
     ### Training
     epochs: int = 3000000000000
     max_steps: int = 100_000
-    max_val_steps: int = 30
+    max_val_steps: int = 128
 
     # this may break with LoRA teacher switching on/off
     # NOTE: running sans compile after reloading a ckpt may lead to an OOM
     do_compile: bool = True
     device: str = 'cuda:0'
-    
+
     # specifically for *mixed precision*
     # we parse torch dtypes to str on saving & then back on loading for simplicity
-    dtype: torch.dtype = field(default=torch.bfloat16, repr=False)
+    dtype: torch.dtype = field(default=torch.float32, repr=False)
     activation_checkpointing: bool = True
 
     ### Data
     data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_train.json'
-    val_data_path: str = '../preferrence-set-to-x/PAMELA//annotations/pamela_val_unseen.json'
+    val_data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_val_unseen.json'
     num_workers: int = 20
     # width & height side lengths
-    resolution: tuple[int, int] = (768, 768)
+    resolution: tuple[int, int] = (512, 512)
 
     ### Logging
     exp_name: str = None
     save_path: str = './'
-    freq: int = 500 # how often we save/log/etc.
+    freq: int = 1000 # how often we save/log/etc.
 
     def to_json(self, filename):
         # we don't want to mutate our actual class

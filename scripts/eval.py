@@ -8,7 +8,7 @@ import torch
 torch.set_float32_matmul_precision('high')
 
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageFont, ImageDraw
 
 import webbrowser
 import sys
@@ -16,19 +16,44 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 from model import get_model_and_tokenizer
-from config import Config
+import config as cnf
 from data import get_dataloader
 
-
-def combine_images_side_by_side(images, padding=0, bg_color=(255, 255, 255)):
+def combine_images_side_by_side(images, padding=0, bg_color=(255, 255, 255), scores=None):
     images = list(images)
+    if not images:
+        return Image.new("RGB", (1, 1), bg_color)
+
     max_height = max(img.height for img in images)
     total_width = sum(img.width for img in images) + padding * (len(images) + 1)
     combined = Image.new("RGB", (total_width, max_height + padding * 2), bg_color)
 
+    if isinstance(scores, torch.Tensor):
+        scores = scores.detach().cpu().tolist()
+    scores = list(scores) if scores is not None else []
+    scores.extend([None] * (len(images) - len(scores)))
+
+    font = ImageFont.truetype(
+        "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf", size=40
+    )
+    draw = ImageDraw.Draw(combined)
+
     x = padding
-    for img in images:
-        combined.paste(img, (x, padding))
+    for img, score in zip(images, scores):
+        combined.paste(img.convert("RGB"), (x, padding))
+
+        label = f"Score: {score}"
+        text_bbox = draw.textbbox((0, 0), label, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+
+        tx, ty = x + 5, padding + 5
+        draw.rectangle(
+            (tx, ty, tx + text_width + 10, ty + text_height + 10),
+            fill=(0, 0, 0),
+        )
+        draw.text((tx + 5, ty + 5), label, fill=(255, 255, 255), font=font)
+
         x += img.width + padding
 
     return combined
@@ -75,10 +100,13 @@ def folder_to_html(folder):
         webbrowser.open(html_path.as_uri())
 
 
-def run_eval(path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only', 
-            load_path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only/10500_ckpt'):
-    config = Config.from_json(f'{path}/config.json')
-    config.load_path = load_path
+def run_eval(path=None, 
+            load_path=None):
+
+    # TODO must set back to loading from json
+    config = cnf.main_config
+    if load_path:
+        config.load_path = load_path
 
     # NOTE just faster loading, slower running
     config.do_compile = True
@@ -89,13 +117,20 @@ def run_eval(path='/home/ryn_mote/Misc/preferrence-adapter/logs/adapter_only',
     model.config.log_dir = './scratch/'
     model.seed = 11
 
-    torch.manual_seed(model.seed)
     __train_dataloader, val_dataloader = get_dataloader(config.data_path, config.val_data_path, batch_size=1, num_workers=1, k=config.k,)
-    max_samples = 4
+    max_samples = 8
     for ind, batch in zip(range(max_samples), val_dataloader):
-        model.do_qual_val(batch['sample_pixels'], guidance_scale=5)
-        path = f'{model.config.log_dir}/latest_val_{model.seed}_{model.total_steps}.png'
-        combine_images_side_by_side(batch['sample_pixels'][0] + [Image.open(path)]).save(f'./scratch/combined_{ind}.png')
+        torch.manual_seed(model.seed)
+        model.do_qual_val(batch['sample_pixels'], guidance_scale=14, 
+                          sample_scores=batch['sample_scores'], 
+                          n_inference_steps=40, save_images=True)
+
+        path = f'{model.config.log_dir}/None_latest_val_{model.seed}_{model.total_steps}.png'
+        combine_images_side_by_side(batch['sample_pixels'][0] + [Image.open(path)], scores=batch['sample_scores'][0]).save(f'./scratch/combined_{ind}_0.png')
+
+        path = f'{model.config.log_dir}/None_latest_val_{model.seed + 1}_{model.total_steps}.png'
+        combine_images_side_by_side(batch['sample_pixels'][0] + [Image.open(path)], scores=batch['sample_scores'][0]).save(f'./scratch/combined_{ind}_1.png')
+
 
 #     folder_to_html(model.config.log_dir)
 

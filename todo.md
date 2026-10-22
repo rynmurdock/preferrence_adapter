@@ -24,6 +24,10 @@
 
 [] qual eval
   [] pad & drop so that we could give just e.g. 2 images instead of four
+  [] and run with negative prompt score=1 -> cond score=5 (instead of uncond is fully uncond)
+
+[] D-OPSD
+  - for now we just use the base model.
 
 ##### Codebase improvements
 [] stash current .py files into logs each training run
