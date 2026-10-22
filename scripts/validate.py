@@ -17,6 +17,8 @@ import numpy as np
 import torch
 torch.set_float32_matmul_precision('high')   # same matmul precision as src/train.py
 from safetensors.torch import load_file
+from pathlib import Path
+
 from config import main_config as config
 from model import get_model_and_tokenizer
 from modeling.model_utils import repair_state_dict_keys
@@ -58,10 +60,11 @@ assert ok and not missing and active == ['default'], 'T0 failed:\n' + '\n'.join(
 # Histories (32 held-out images per persona; T2 mixes them), generated at each seed with Ryan's sampler, then judged
 from metrics.persona_suite import histories, generate, make_judge, hits_and_p
 P = args.personas
-images = generate(model, histories(P, config.k), args.seeds, args.guidance, args.steps)
+data_root = Path(config.data_path).resolve().parents[1]
+images = generate(model, histories(P, config.k, data_root), args.seeds, args.guidance, args.steps)
 del model
 torch.cuda.empty_cache()
-judge = make_judge(P, 'cuda')
+judge = make_judge(P, 'cuda', config.data_path)
 report.append(f'Judge chooses among {len(judge.names)} personas')
 keys = list(images)
 verdict = dict(zip(keys, judge([images[k] for k in keys])[0]))

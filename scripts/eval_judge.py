@@ -16,7 +16,7 @@ OUT = 'docs/results/S2_judge'
 os.makedirs(OUT, exist_ok=True)
 
 names = args.personas or select_personas()
-judge = PersonaJudge(names, 'cuda')
+judge = PersonaJudge(names, 'cuda',)
 train = set(image_groups(['train']))
 truth, paths = zip(*[(n, p) for n, m in load_personas(names).items() for p in m if p not in train])
 picks, S = judge(list(paths))

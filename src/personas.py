@@ -3,6 +3,7 @@ Simulated personas: naturally occurring image groups in PAMELA, found by cluster
 A persona rates its own group's core images 5 and the other personas' 1.
 '''
 import json
+from pathlib import Path
 
 PERSONAS_FILE = 'docs/results/S1_personas/personas.json'
 SPLITS = ['train', 'val_seen', 'val_unseen', 'test_seen', 'test_unseen']
@@ -22,7 +23,8 @@ def image_groups(splits=SPLITS, root='PAMELA'):
             groups[r['image_path']] = r['image_metadata']['group']
     return groups
 
-def select_personas(min_heldout=32):
+def select_personas(min_heldout=32, data_path=None):
     '''Names of the personas with at least min_heldout held-out core images.'''
-    train = set(image_groups(['train']))
+    data_root = Path(data_path).resolve().parents[1] if data_path else None
+    train = set(image_groups(['train'], data_root))
     return [n for n, m in load_personas().items() if sum(p not in train for p in m) >= min_heldout]

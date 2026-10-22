@@ -11,10 +11,12 @@ import os
 import torch
 torch.set_float32_matmul_precision('high')
 import logging
+
 import numpy as np
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
+from pathlib import Path
 
+from torch.utils.tensorboard import SummaryWriter
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -51,8 +53,9 @@ Setting up our logging directory at {log_dir} !
     # persona validation: histories and judge never change, so build them once
     if config.val_personas:
         from metrics.persona_suite import histories, generate, make_judge, hits_and_p
-        val_H = {key: h for key, h in histories(config.val_personas, config.k).items() if key[0] in config.val_tests}
-        judge = make_judge(config.val_personas, config.device)
+        data_root = Path(config.data_path).resolve().parents[1]
+        val_H = {key: h for key, h in histories(config.val_personas, config.k, data_root).items() if key[0] in config.val_tests}
+        judge = make_judge(config.val_personas, config.device, config.data_path)
 
 
     np.random.seed(config.seed)

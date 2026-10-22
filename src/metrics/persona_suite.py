@@ -8,11 +8,11 @@ from personas import load_personas, image_groups, select_personas
 from metrics.persona_judge import PersonaJudge
 
 
-def histories(personas, k):
+def histories(personas, k, data_root='PAMELA'):
     '''{(test, persona): (image paths, scores)}, from held-out images only.
     T1: the persona's own k images, all rated 5. T2: one mixed history, 5 for the persona's own, 1 for the rest.
     T3: T1's images, all rated 1.'''
-    train = set(image_groups(['train']))
+    train = set(image_groups(['train'], root=data_root))
     own = {n: random.Random(0).sample(sorted(p for p in m if p not in train), k)
            for n, m in load_personas(personas).items()}
     mixed = [own[n][i] for i in range(k) for n in personas][:k]
@@ -36,9 +36,9 @@ def generate(model, H, seeds, guidance=4, steps=50):
     return images
 
 
-def make_judge(personas, device):
+def make_judge(personas, device, data_path):
     '''Judge among all the large personas, so an image that looks like something else counts as a miss'''
-    return PersonaJudge(sorted(set(select_personas()) | set(personas)), device)
+    return PersonaJudge(sorted(set(select_personas(data_path=data_path)) | set(personas)), device)
 
 
 def hits_and_p(verdict, personas, seeds, test):

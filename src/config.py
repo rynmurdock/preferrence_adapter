@@ -13,7 +13,7 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
-    load_path = None
+    load_path = '/home/ryn_mote/Misc/preferrence-adapter/logs/oddity_Wellborn_Aalesund/5000_ckpt'
 
     seed: int = 13
     # number of conditioning sample images with scores
@@ -33,12 +33,12 @@ class Config:
     ### Hparams
     batch_size: int = 2
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 4e-5
+    lr: float = 2e-4
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
 
-    n_inference_steps: int = 50
+    n_inference_steps: int = 40
 
     # mainly acts as attention sink, keeping in-domain
     use_prompt: str = 'The scene.'
@@ -62,8 +62,8 @@ class Config:
     activation_checkpointing: bool = True
 
     ### Data
-    data_path: str = './PAMELA/annotations/pamela_train.json'
-    val_data_path: str = './PAMELA/annotations/pamela_val_unseen.json'
+    data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_val_unseen.json'
+    val_data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_val_unseen.json'
     num_workers: int = 20
     # width & height side lengths
     resolution: tuple[int, int] = (512, 512)
@@ -71,7 +71,7 @@ class Config:
     ### Logging
     exp_name: str = None
     save_path: str = './'
-    freq: int = 100 # how often we save/log/etc.
+    freq: int = 500 # how often we save/log/etc.
     # persona validation (src/metrics/persona_suite.py) at every validation; an empty list turns it off
     val_personas: list = field(default_factory=lambda: ['c06_food', 'c05_product', 'c02_architecture', 'c09_cinematic'])
     val_seeds: list = field(default_factory=lambda: [0, 1, 2])

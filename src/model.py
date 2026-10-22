@@ -244,7 +244,7 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=4, 
+    def do_qual_val(self, pref_history_images, guidance_scale=8, 
                     sample_scores: list[list] = None, target_scores: list = None, 
                     save_images=False, n_inference_steps=4, seeds=None,
                     step_n=None):
@@ -285,8 +285,8 @@ class Zoo(torch.nn.Module):
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
             image = self.inference(semantic_embeds, guidance_scale, (width, height),
                                    latent_seed_generator, n_inference_steps)
-            logging.info(f'Saving at {self.config.log_dir}/{step_n}_latest_val_{ind}_{self.total_steps}.png')
             if save_images:
+                logging.info(f'Saving at {self.config.log_dir}/{step_n}_latest_val_{ind}_{self.total_steps}.png')
                 image.save(f'{self.config.log_dir}/{step_n}_latest_val_{ind}_{self.total_steps}.png')
                 for ind, pref_im in enumerate(pref_history_images[0]):
                     pref_im.save(f'{ind}_pref_im.png')
