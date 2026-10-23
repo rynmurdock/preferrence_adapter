@@ -11,7 +11,7 @@ import torch
 from PIL import Image
 from diffusers import Flux2Transformer2DModel
 
-sys.path.append('/home/ryn_mote/Misc/eye_experiments/gaze-conditioned-diffusion/src/')
+sys.path.append('./src/')
 
 
 

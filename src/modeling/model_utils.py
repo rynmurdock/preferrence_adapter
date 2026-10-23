@@ -134,7 +134,10 @@ class SemanticEmbedsKlein(torch.nn.Module):
         self.in_linear = torch.nn.Linear(768, 512)
         self.out_linear = torch.nn.Linear(512, out_dim)
         self.score_embedder = ScoreEmbedding()
-
+        self.siglip_adapter = torch.nn.Sequential(
+                                torch.nn.Linear(768, 768),
+                                torch.nn.SiLU(),
+                                torch.nn.Linear(768, 768),)
 
     def forward(self, *args, **kwargs):
         # default to using our adapter
@@ -152,18 +155,19 @@ class SemanticEmbedsKlein(torch.nn.Module):
                     hidden_states=hidden_states,
                     rotary_emb=sem_emb_rotary_embeds, 
                     # NOTE we're just padding to max & seeing all
-                    joint_attention_kwargs={'attention_mask': prompt_embeds_attn_mask},
+                    # joint_attention_kwargsq={'attention_mask': prompt_embeds_attn_mask},
                     )
             hidden_states = self.out_linear(hidden_states)
 
             # prepend our cached text prompt
             if not cached_prompt is None:
-                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :512-self.k-1], 
+                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :16], 
                     hidden_states], 1)
-                kwargs['txt_ids'] = self.cached_txt_ids
+                # TODO 16 is our cached prompt truncation; don't hardcodeq
+                kwargs['txt_ids'] = self.cached_txt_ids[:, :16+self.k+1]
                 if not kwargs['joint_attention_kwargs'] is None:
                     att_mask = kwargs['joint_attention_kwargs']['attention_mask']
-                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :512-self.k-1] > 0, 
+                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :16] > 0, 
                         att_mask], 1)
                     kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
             kwargs['encoder_hidden_states'] = hidden_states

@@ -19,5 +19,5 @@ words_cache.txt
 last_epoch_ckpt copy/
 PrefBench/
 checkpoints/
-!docs/results/**
-docs/results/**/*.pt
+# !docs/results/**
+docs/results/**

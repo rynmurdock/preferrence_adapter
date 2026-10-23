@@ -9,8 +9,8 @@ Build the simulated personas into docs/results/S1_personas/:
 import os, json, collections
 import numpy as np, torch, networkx as nx
 from PIL import Image
-from personas import PERSONAS_FILE, image_groups
-from metrics.clip_l import ClipL
+from src.personas import PERSONAS_FILE, image_groups
+from src.metrics.clip_l import ClipL
 
 OUT = os.path.dirname(PERSONAS_FILE)
 os.makedirs(OUT, exist_ok=True)

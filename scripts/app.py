@@ -80,7 +80,7 @@ def sample_embs(prompt_embeds, scores):
     
     prompt_embeds = prompt_embeds.to(device)
     scores = scores.to(device)
-    image_embeds = model.enrich_with_preference_embedding(prompt_embeds, scores)
+    image_embeds, _ = model.enrich_with_preference_embedding(prompt_embeds, scores)
     return image_embeds
 
 def get_user_emb(embs, ys, greedyish=False):

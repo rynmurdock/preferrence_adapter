@@ -49,10 +49,11 @@ def get_loss(model, batch, images, config, dtype=None,):
     dtype = model.dtype if not dtype else dtype
     with torch.no_grad():
         # rng drop out inputs by sample
-        zeroing_mask = torch.rand((embeds.shape[0],)) < .2
+        zeroing_mask = torch.rand((embeds.shape[0],)) < .1
         embeds[zeroing_mask] = 0
 
         # rng drop out inputs by token
+        # TODO decide on good options for long-tail low image counts
         zeroing_mask = torch.rand((embeds.shape[0], embeds.shape[1])) < .2
         embeds[zeroing_mask] = 0
 
@@ -111,7 +112,6 @@ def get_loss(model, batch, images, config, dtype=None,):
             if config.lora_rank:
                 model.pipe.transformer.orig_transformer.enable_lora()
 
-
     with torch.autocast(device_type='cuda', enabled=not config.quantize_model, dtype=dtype):
         latent_model_input = torch.cat([latents], dim=1).to(model.pipe.transformer.dtype)
         latent_image_ids = latent_ids
@@ -162,9 +162,18 @@ class Zoo(torch.nn.Module):
         # we add a timestep-pos-styled embedding to each semantic embedding
         #   to specify the preference for given images to the model
 
-        # TODO can make improvements here
+        # we'll have at least [seq_dim, scores]
+        if scores.ndim < 2:
+            scores = scores[None]
+
+        embeds = self.pipe.transformer.siglip_adapter(embeds)
         embeds = embeds + self.pipe.transformer.score_embedder(scores)
-        return embeds
+
+        neg_scores = torch.ones_like(scores.clone())
+        # set target to be a bad score
+        neg_scores[:, 0] = 1
+        diff_neg_embeds = embeds + self.pipe.transformer.score_embedder(neg_scores)
+        return embeds, diff_neg_embeds
 
 
     @torch.no_grad()
@@ -175,9 +184,9 @@ class Zoo(torch.nn.Module):
                                                     return_tensors="pt").to(self.device)
             embeds = self.semantic_encoder_model.get_image_features(**inputs,
                                                                     output_hidden_states=True,
-                                                                    ).hidden_states[-3].mean(-2)
+                                                                    ).hidden_states[-2].mean(-2)
+            # TODO citation for using intermediate not last
             embeds = embeds / torch.nn.functional.normalize(embeds, dim=-1)
-            # citation for using intermediate not last
             embeds_batch.append(embeds)
         embeds_batch = torch.stack(embeds_batch)
         return embeds_batch
@@ -214,10 +223,11 @@ class Zoo(torch.nn.Module):
     @torch.no_grad()
     def inference(self, 
                   embeds, 
-                  guidance_scale=1.2,
+                  guidance_scale=8,
                   width_height=None, 
                   generator=None,
-                  n_inference_steps=4,):
+                  n_inference_steps=4,
+                  diff_neg=None,):
         assert embeds.shape[0] == 1, f'Must be batch size of 1. {embeds.shape=}'
         width, height = self.config.resolution if not width_height else width_height
         offload_vae_back_to_cpu = False
@@ -234,7 +244,7 @@ class Zoo(torch.nn.Module):
                 num_inference_steps=n_inference_steps,
                 guidance_scale=guidance_scale,
                 prompt_embeds=embeds,
-                negative_prompt_embeds=torch.zeros_like(embeds),
+                negative_prompt_embeds=torch.zeros_like(embeds) if diff_neg is None else diff_neg,
                 height=height,
                 width=width,
                 generator=generator,
@@ -247,8 +257,8 @@ class Zoo(torch.nn.Module):
     def do_qual_val(self, pref_history_images, guidance_scale=8, 
                     sample_scores: list[list] = None, target_scores: list = None, 
                     save_images=False, n_inference_steps=4, seeds=None,
-                    step_n=None):
-        
+                    step_n=None, use_diff_neg=False):
+
         # we do batch_size=1 evaluation for now
         if isinstance(pref_history_images[0], list):
             pref_history_images = pref_history_images[:1]
@@ -271,7 +281,7 @@ class Zoo(torch.nn.Module):
                 sample_scores = sample_scores[0].numpy().tolist()
 
         scores = torch.tensor(target_scores + sample_scores)
-        semantic_embeds = self.enrich_with_preference_embedding(semantic_embeds, scores)
+        semantic_embeds, diff_neg_embeds = self.enrich_with_preference_embedding(semantic_embeds, scores)
         # NOTE we're just padding to max & seeing all
         if semantic_embeds.shape[1] < self.config.k:
             semantic_embeds = torch.nn.functional.pad(
@@ -284,12 +294,13 @@ class Zoo(torch.nn.Module):
             width, height = self.config.resolution
             latent_seed_generator = torch.Generator(device="cuda").manual_seed(ind)
             image = self.inference(semantic_embeds, guidance_scale, (width, height),
-                                   latent_seed_generator, n_inference_steps)
+                                   latent_seed_generator, n_inference_steps, 
+                                   diff_neg=diff_neg_embeds if use_diff_neg else None)
             if save_images:
                 logging.info(f'Saving at {self.config.log_dir}/{step_n}_latest_val_{ind}_{self.total_steps}.png')
                 image.save(f'{self.config.log_dir}/{step_n}_latest_val_{ind}_{self.total_steps}.png')
-                for ind, pref_im in enumerate(pref_history_images[0]):
-                    pref_im.save(f'{ind}_pref_im.png')
+                # for ind, pref_im in enumerate(pref_history_images[0]):
+                #     pref_im.save(f'{ind}_pref_im.png')
             images_out.append(image)
         return images_out
 
@@ -303,7 +314,7 @@ class Zoo(torch.nn.Module):
         target_embed = embeds.new_zeros(len(embeds), 1, embeds.shape[-1])
         embeds = torch.cat([target_embed, embeds], 1)
         scores = torch.cat([batch['target_scores'], batch['sample_scores']], 1)
-        embeds = self.enrich_with_preference_embedding(embeds, scores)
+        embeds, _ = self.enrich_with_preference_embedding(embeds, scores)
         return embeds
 
     

@@ -19,23 +19,22 @@ torch.set_float32_matmul_precision('high')   # same matmul precision as src/trai
 from safetensors.torch import load_file
 from pathlib import Path
 
-from config import main_config as config
 from model import get_model_and_tokenizer
+from config import main_config as config
 from modeling.model_utils import repair_state_dict_keys
 
 p = argparse.ArgumentParser()
 p.add_argument('--load_path', required=True)
-p.add_argument('--personas', nargs='+', default=['c06_food', 'c05_product', 'c02_architecture', 'c09_cinematic'])
-p.add_argument('--seeds', type=int, nargs='+', default=list(range(8)))
-p.add_argument('--guidance', type=float, default=4)
-p.add_argument('--steps', type=int, default=50)
+p.add_argument('--personas', nargs='+', default=['c06_food', 'c09_cinematic', 'c03_abstract'])
+p.add_argument('--seeds', type=int, nargs='+', default=list(range(1)))
+p.add_argument('--guidance', type=float, default=200)
+p.add_argument('--steps', type=int, default=40)
 args = p.parse_args()
 OUT = f'docs/results/S3_{os.path.basename(args.load_path.rstrip("/"))}'
 os.makedirs(OUT, exist_ok=True)
 
 config.load_path, config.do_compile, config.log_dir = args.load_path, False, OUT
 model = get_model_and_tokenizer(config.transformer_model_path, config.device, config.dtype, config.seed, False, config)
-model.eval()
 
 # T0: is every checkpoint tensor in the model, exactly as saved?
 sd = model.pipe.transformer.state_dict()
@@ -103,4 +102,5 @@ for test in ['T1', 'T2', 'T3']:
             grid.paste(images[test, n, s].resize((T, T)), (c * T, y + 14))
             d.text((c * T + 2, y + 1), f'seed {s} -> {verdict[test, n, s]}', fill='black')
     grid.save(f'{OUT}/{test}_grid.jpg', quality=85)
+    histories(P, config.k, data_root)
 print('\n'.join(report))

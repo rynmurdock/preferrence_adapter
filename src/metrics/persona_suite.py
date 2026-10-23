@@ -18,9 +18,9 @@ def histories(personas, k, data_root='PAMELA'):
     mixed = [own[n][i] for i in range(k) for n in personas][:k]
     H = {}
     for n in personas:
-        H['T1', n] = own[n], [5] * k
-        H['T2', n] = mixed, [5 if p in own[n] else 1 for p in mixed]
-        H['T3', n] = own[n], [1] * k
+        H['T1', n] = own[n], [4] * k
+        H['T2', n] = mixed, [4 if p in own[n] else 2 for p in mixed]
+        H['T3', n] = own[n], [2] * k
     return H
 
 
@@ -31,8 +31,9 @@ def generate(model, H, seeds, guidance=4, steps=50):
         for (test, n), (paths, scores) in H.items():
             history = [Image.open(f'PAMELA/{p}').convert('RGB') for p in paths]
             for s in seeds:
-                images[test, n, s] = model.do_qual_val(history, guidance, sample_scores=scores, target_scores=[5],
+                img = model.do_qual_val(history, guidance, sample_scores=scores, target_scores=[5],
                                                        seeds=[s], n_inference_steps=steps)[0]
+                images[test, n, s] = img
     return images
 
 

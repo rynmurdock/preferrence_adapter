@@ -13,13 +13,13 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
-    load_path = '/home/ryn_mote/Misc/preferrence-adapter/logs/oddity_Wellborn_Aalesund/5000_ckpt'
+    load_path = '/home/ryn_mote/Misc/preferrence-adapter/logs/governingly_Worley_Un-socratic/99000_ckpt'
 
-    seed: int = 13
+    seed: int = 14
     # number of conditioning sample images with scores
     k: int = 32
 
-    lora_rank: int = 16
+    lora_rank: int = 32
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
@@ -33,7 +33,7 @@ class Config:
     ### Hparams
     batch_size: int = 2
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 2e-4
+    lr: float = 4e-5
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
@@ -48,7 +48,7 @@ class Config:
 
     ### Training
     epochs: int = 3000000000000
-    max_steps: int = 100_000
+    max_steps: int = 1_000_000
     max_val_steps: int = 128
 
     # this may break with LoRA teacher switching on/off
@@ -62,7 +62,7 @@ class Config:
     activation_checkpointing: bool = True
 
     ### Data
-    data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_val_unseen.json'
+    data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_train.json'
     val_data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_val_unseen.json'
     num_workers: int = 20
     # width & height side lengths
@@ -71,11 +71,13 @@ class Config:
     ### Logging
     exp_name: str = None
     save_path: str = './'
-    freq: int = 500 # how often we save/log/etc.
+    freq: int = 2000 # how often we save/log/etc.
+
     # persona validation (src/metrics/persona_suite.py) at every validation; an empty list turns it off
-    val_personas: list = field(default_factory=lambda: ['c06_food', 'c05_product', 'c02_architecture', 'c09_cinematic'])
-    val_seeds: list = field(default_factory=lambda: [0, 1, 2])
-    val_tests: list = field(default_factory=lambda: ['T1', 'T2'])
+    val_personas: list = field(default_factory=lambda: ['c06_food', 'c09_cinematic', 'c03_abstract'])
+    # TODO seeing identical outputs on these panels, so wonder if it may be seeding is broken?
+    val_seeds: list = field(default_factory=lambda: [0, 1, ])
+    val_tests: list = field(default_factory=lambda: ['T1'])
 
     def to_json(self, filename):
         # we don't want to mutate our actual class
