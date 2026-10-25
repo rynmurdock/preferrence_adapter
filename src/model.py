@@ -186,7 +186,7 @@ class Zoo(torch.nn.Module):
                                                                     output_hidden_states=True,
                                                                     ).hidden_states[-2].mean(-2)
             # TODO citation for using intermediate not last
-            embeds = embeds / torch.nn.functional.normalize(embeds, dim=-1)
+            embeds = torch.nn.functional.normalize(embeds, dim=-1)
             embeds_batch.append(embeds)
         embeds_batch = torch.stack(embeds_batch)
         return embeds_batch
@@ -256,8 +256,8 @@ class Zoo(torch.nn.Module):
     @torch.no_grad()
     def do_qual_val(self, pref_history_images, guidance_scale=8, 
                     sample_scores: list[list] = None, target_scores: list = None, 
-                    save_images=False, n_inference_steps=4, seeds=None,
-                    step_n=None, use_diff_neg=False):
+                    save_images=False, n_inference_steps=50, seeds=None,
+                    step_n=None, use_diff_neg=True):
 
         # we do batch_size=1 evaluation for now
         if isinstance(pref_history_images[0], list):

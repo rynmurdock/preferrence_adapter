@@ -13,7 +13,7 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
-    load_path = '/home/ryn_mote/Misc/preferrence-adapter/logs/governingly_Worley_Un-socratic/99000_ckpt'
+    load_path = '/home/ryn_mote/Misc/preferrence-adapter/logs/contd_Romeon_Un-socratic/92000_ckpt'
 
     seed: int = 14
     # number of conditioning sample images with scores
