@@ -13,13 +13,13 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
-    load_path = '/home/ryn_mote/Misc/preferrence-adapter/logs/contd_Romeon_Un-socratic/92000_ckpt'
+    load_path = None
 
     seed: int = 14
     # number of conditioning sample images with scores
     k: int = 32
 
-    lora_rank: int = 32
+    lora_rank: int = 128
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
@@ -31,9 +31,9 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 2
+    batch_size: int = 8
     # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 4e-5
+    lr: float = 4e-4
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
@@ -41,7 +41,7 @@ class Config:
     n_inference_steps: int = 40
 
     # mainly acts as attention sink, keeping in-domain
-    use_prompt: str = 'The scene.'
+    use_prompt: str = 'The image.'
     # teacher gives the input image back in most cases
     #   sans instruction
     teacher_use_prompt: str = ''
@@ -58,7 +58,7 @@ class Config:
 
     # specifically for *mixed precision*
     # we parse torch dtypes to str on saving & then back on loading for simplicity
-    dtype: torch.dtype = field(default=torch.float32, repr=False)
+    dtype: torch.dtype = field(default=torch.bfloat16, repr=False)
     activation_checkpointing: bool = True
 
     ### Data
@@ -71,7 +71,7 @@ class Config:
     ### Logging
     exp_name: str = None
     save_path: str = './'
-    freq: int = 2000 # how often we save/log/etc.
+    freq: int = 1000 # how often we save/log/etc.
 
     # persona validation (src/metrics/persona_suite.py) at every validation; an empty list turns it off
     val_personas: list = field(default_factory=lambda: ['c06_food', 'c09_cinematic', 'c03_abstract'])

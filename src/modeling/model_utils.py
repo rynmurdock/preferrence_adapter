@@ -121,13 +121,13 @@ class SemanticEmbedsKlein(torch.nn.Module):
         self.adapter = torch.nn.ModuleList([
                 SemanticFlux2SingleTransformerBlock(
                     dim=512,
-                    num_attention_heads=16,
+                    num_attention_heads=32,
                     attention_head_dim=128,
-                    mlp_ratio=2,
-                    eps=1e-6,
+                    mlp_ratio=3,
+                    eps=1e-7,
                     bias=False,
                 )
-            for _ in range(3)])
+            for _ in range(4)])
         # following i1 (https://arxiv.org/abs/2606.11289)
         #   for reasonable depth+1
 
@@ -161,13 +161,13 @@ class SemanticEmbedsKlein(torch.nn.Module):
 
             # prepend our cached text prompt
             if not cached_prompt is None:
-                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :16], 
+                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :512-self.k-1], 
                     hidden_states], 1)
                 # TODO 16 is our cached prompt truncation; don't hardcodeq
-                kwargs['txt_ids'] = self.cached_txt_ids[:, :16+self.k+1]
+                kwargs['txt_ids'] = self.cached_txt_ids[:, :512-self.k-1+self.k+1]
                 if not kwargs['joint_attention_kwargs'] is None:
                     att_mask = kwargs['joint_attention_kwargs']['attention_mask']
-                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :16] > 0, 
+                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :512-self.k-1] > 0, 
                         att_mask], 1)
                     kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
             kwargs['encoder_hidden_states'] = hidden_states

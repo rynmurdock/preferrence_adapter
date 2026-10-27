@@ -257,7 +257,7 @@ class Zoo(torch.nn.Module):
     def do_qual_val(self, pref_history_images, guidance_scale=8, 
                     sample_scores: list[list] = None, target_scores: list = None, 
                     save_images=False, n_inference_steps=50, seeds=None,
-                    step_n=None, use_diff_neg=True):
+                    step_n=None, use_diff_neg=False):
 
         # we do batch_size=1 evaluation for now
         if isinstance(pref_history_images[0], list):
