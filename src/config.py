@@ -13,6 +13,7 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
+    # load_path = '/home/ryn_mote/Misc/preferrence-adapter/logs/cautioned_Quimper_Namen/27000_ckpt/'
     load_path = None
 
     seed: int = 14
@@ -32,8 +33,9 @@ class Config:
 
     ### Hparams
     batch_size: int = 8
-    # TODO add lr scheduler options here (right now: lower to .1 in 100 steps)
-    lr: float = 4e-4
+
+    # TODO add lr scheduler params here (right now: lower to .1 in 100 steps)
+    lr: float = 5e-5
 
     # TODO add conditioning dropout rate
     #   and val guidance scale

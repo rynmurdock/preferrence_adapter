@@ -24,7 +24,7 @@ def histories(personas, k, data_root='PAMELA'):
     return H
 
 
-def generate(model, H, seeds, guidance=4, steps=50):
+def generate(model, H, seeds, guidance=9, steps=50):
     '''{(test, persona, seed): image}, with the repo's sampler, asking for a 5'''
     images = {}
     with torch.no_grad():

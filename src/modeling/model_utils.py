@@ -48,11 +48,12 @@ class ScoreEmbedding(torch.nn.Module):
         #   as nn.Embedding is apt to break on distributed training
         self.embed_linear = torch.nn.Linear(5, out_dim,)
 
-        with torch.no_grad():
-            torch.nn.init.normal_(self.embed_linear.weight)
-
         self.ln = torch.nn.LayerNorm(time_embed_dim_out)
         self.out_lin = torch.nn.Linear(time_embed_dim_out, time_embed_dim_out,)
+
+        with torch.no_grad():
+            torch.nn.init.normal_(self.embed_linear.weight,)
+
 
 
     # TODO infer device, not default to cuda
@@ -137,7 +138,13 @@ class SemanticEmbedsKlein(torch.nn.Module):
         self.siglip_adapter = torch.nn.Sequential(
                                 torch.nn.Linear(768, 768),
                                 torch.nn.SiLU(),
+                                torch.nn.Linear(768, 768),
+                                torch.nn.LayerNorm(768),
                                 torch.nn.Linear(768, 768),)
+        
+        # with torch.no_grad():
+        #     torch.nn.init.normal_(self.siglip_adapter[-1].weight, std=1)
+
 
     def forward(self, *args, **kwargs):
         # default to using our adapter
@@ -161,13 +168,13 @@ class SemanticEmbedsKlein(torch.nn.Module):
 
             # prepend our cached text prompt
             if not cached_prompt is None:
-                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :512-self.k-1], 
+                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :512], 
                     hidden_states], 1)
-                # TODO 16 is our cached prompt truncation; don't hardcodeq
-                kwargs['txt_ids'] = self.cached_txt_ids[:, :512-self.k-1+self.k+1]
+                # TODO `x+self.k+1`: x is our cached prompt truncation; don't hardcodeq
+                kwargs['txt_ids'] = self.cached_txt_ids[:, :512+self.k+1]
                 if not kwargs['joint_attention_kwargs'] is None:
                     att_mask = kwargs['joint_attention_kwargs']['attention_mask']
-                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :512-self.k-1] > 0, 
+                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :512] > 0, 
                         att_mask], 1)
                     kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
             kwargs['encoder_hidden_states'] = hidden_states

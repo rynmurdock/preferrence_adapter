@@ -29,6 +29,9 @@
 [] D-OPSD
   - for now we just use the base model.
 
+
+auto-start tensorboard with launch script
+
 ##### Codebase improvements
 [] stash current .py files into logs each training run
 [] avoid storing e.g. both model.config.seed and model.seed
