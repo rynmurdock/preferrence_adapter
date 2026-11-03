@@ -83,6 +83,9 @@ Setting up our logging directory at {log_dir} !
 Training {len(trained_params)} torch modules
 ****************************
     ''')
+    if config.fp32_training:
+        for p in trained_params.values():
+            p.data = p.data.float()
     optimizer, lr_sched = get_optimizer_and_lr_sched(list(trained_params.values()), config.lr, config)
     for p in not_trained:
         p.requires_grad = False

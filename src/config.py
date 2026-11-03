@@ -21,6 +21,7 @@ class Config:
     k: int = 32
 
     sigma_mu: float = 3.03
+    fp32_training: bool = True
     lora_rank: int = 0
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
@@ -36,7 +37,7 @@ class Config:
     batch_size: int = 8
 
     # TODO add lr scheduler params here (right now: lower to .1 in 100 steps)
-    lr: float = 5e-5
+    lr: float = 1e-4
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
@@ -44,7 +45,7 @@ class Config:
     n_inference_steps: int = 40
 
     # mainly acts as attention sink, keeping in-domain
-    use_prompt: str = 'The image.'
+    use_prompt: str = 'The scene.'
     # teacher gives the input image back in most cases
     #   sans instruction
     teacher_use_prompt: str = ''
