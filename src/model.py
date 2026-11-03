@@ -84,12 +84,11 @@ def get_loss(model, batch, images, config, dtype=None,):
                 mus = []
                 # NOTE this ditches compute_empirical_mu
                 for sample_ind in range(noise.shape[0]):
-                    mu = calculate_shift(latents_there_mask[sample_ind].amax(-1).sum(0), )
+                    mu = calculate_shift(latents_there_mask[sample_ind].amax(-1).sum(0), ) if config.sigma_mu is None else config.sigma_mu
                     mus.append(mu)
                 mus = torch.tensor(mus).to(u.device, u.dtype)
                 u = torch.exp(mus) / (torch.exp(mus) + (1 / u - 1) ** 1)
-            indices = (u * model.noise_scheduler_copy.config.num_train_timesteps).long()
-            timesteps = model.noise_scheduler_copy.timesteps[indices].to(device=x0.device)
+            timesteps = (u * model.noise_scheduler_copy.config.num_train_timesteps).to(device=x0.device)
 
         sigma = timesteps.view(-1, 1, 1) / 1000
         latents = sigma * noise + (1 - sigma) * x0
