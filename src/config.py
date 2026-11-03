@@ -20,7 +20,8 @@ class Config:
     # number of conditioning sample images with scores
     k: int = 32
 
-    lora_rank: int = 128
+    sigma_mu: float = 3.03
+    lora_rank: int = 0
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
