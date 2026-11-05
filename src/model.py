@@ -292,7 +292,7 @@ class Zoo(torch.nn.Module):
                 semantic_embeds, (0, 0, 0, self.config.k - semantic_embeds.shape[1] + 1))
         text_embeds, _ = get_prompt_embeds_txt_ids(self.pipe, text_prompt, semantic_embeds.device, dtype=semantic_embeds.dtype)
         # concatenate our preference embeds, truncate our text embeds to have 512 length
-        semantic_embeds = torch.cat((semantic_embeds, text_embeds[:, :512-semantic_embeds.shape[1]]), 1)
+        semantic_embeds = torch.cat((text_embeds[:, :512-semantic_embeds.shape[1]], semantic_embeds), 1)
 
         if seeds is None:
             seeds = [self.seed, self.seed+1]
@@ -325,7 +325,7 @@ class Zoo(torch.nn.Module):
 
         text_embeds, _ = get_prompt_embeds_txt_ids(self.pipe, batch['sample_prompts'], embeds.device, dtype=embeds.dtype)
         # concatenate our preference embeds, truncate our text embeds to have 512 length
-        embeds = torch.cat((embeds, text_embeds[:, :512-embeds.shape[1]]), 1)
+        embeds = torch.cat((text_embeds[:, :512-embeds.shape[1]], embeds), 1)
         return embeds
 
     @torch.no_grad()

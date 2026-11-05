@@ -72,12 +72,12 @@ class Config:
     val_data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_val_unseen.json'
     num_workers: int = 20
     # width & height side lengths
-    resolution: tuple[int, int] = (128, 128)
+    resolution: tuple[int, int] = (256, 256)
 
     ### Logging
     exp_name: str = None
     save_path: str = './'
-    freq: int = 1000 # how often we save/log/etc.
+    freq: int = 5000 # how often we save/log/etc.
 
     # persona validation (src/metrics/persona_suite.py) at every validation; an empty list turns it off
     val_personas: list = field(default_factory=lambda: [])
