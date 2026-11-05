@@ -172,6 +172,11 @@ class Zoo(torch.nn.Module):
         # set target to be a bad score
         neg_scores[:, 0] = 1
         diff_neg_embeds = embeds + self.pipe.transformer.score_embedder(neg_scores)
+
+        # pad so we can directly concat with our text embeddings now
+        embeds = torch.nn.functional.pad(embeds, (7680-embeds.shape[-1], 0))
+        diff_neg_embeds = torch.nn.functional.pad(diff_neg_embeds, 
+                                                  (7680-diff_neg_embeds.shape[-1], 0))
         return embeds, diff_neg_embeds
 
 
@@ -222,7 +227,7 @@ class Zoo(torch.nn.Module):
     @torch.no_grad()
     def inference(self, 
                   embeds, 
-                  guidance_scale=8,
+                  guidance_scale=1.5,
                   width_height=None, 
                   generator=None,
                   n_inference_steps=4,
@@ -253,10 +258,10 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=8, 
+    def do_qual_val(self, pref_history_images, guidance_scale=1.5, 
                     sample_scores: list[list] = None, target_scores: list = None, 
                     save_images=False, n_inference_steps=50, seeds=None,
-                    step_n=None, use_diff_neg=False):
+                    step_n=None, use_diff_neg=False, text_prompt='A green dog.'):
 
         # we do batch_size=1 evaluation for now
         if isinstance(pref_history_images[0], list):
@@ -285,6 +290,9 @@ class Zoo(torch.nn.Module):
         if semantic_embeds.shape[1] < self.config.k:
             semantic_embeds = torch.nn.functional.pad(
                 semantic_embeds, (0, 0, 0, self.config.k - semantic_embeds.shape[1] + 1))
+        text_embeds, _ = get_prompt_embeds_txt_ids(self.pipe, text_prompt, semantic_embeds.device, dtype=semantic_embeds.dtype)
+        # concatenate our preference embeds, truncate our text embeds to have 512 length
+        semantic_embeds = torch.cat((semantic_embeds, text_embeds[:, :512-semantic_embeds.shape[1]]), 1)
 
         if seeds is None:
             seeds = [self.seed, self.seed+1]
@@ -314,9 +322,12 @@ class Zoo(torch.nn.Module):
         embeds = torch.cat([target_embed, embeds], 1)
         scores = torch.cat([batch['target_scores'], batch['sample_scores']], 1)
         embeds, _ = self.enrich_with_preference_embedding(embeds, scores)
+
+        text_embeds, _ = get_prompt_embeds_txt_ids(self.pipe, batch['sample_prompts'], embeds.device, dtype=embeds.dtype)
+        # concatenate our preference embeds, truncate our text embeds to have 512 length
+        embeds = torch.cat((embeds, text_embeds[:, :512-embeds.shape[1]]), 1)
         return embeds
 
-    
     @torch.no_grad()
     def val(self, val_dataloader, max_val_steps, dtype, step_n=None, n_inference_steps=4):
         logging.info(f'\nRunning validation for max {max_val_steps}\n')
@@ -343,8 +354,10 @@ class Zoo(torch.nn.Module):
 
 
 def get_prompt_embeds_txt_ids(pipe, prompt, device, dtype=torch.float32):
+    pipe.text_encoder.to(device)
     p, t_ids = pipe.encode_prompt(prompt=prompt, device=device,)
     p, t_ids = p.to(device, dtype), t_ids.to(device, dtype)
+    pipe.text_encoder.to('cpu')
     return p, t_ids
 
 def add_lora(transformer, rank, target_modules):
@@ -411,7 +424,7 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
     pipe.cached_teacher_prompt, pipe.cached_teacher_txt_ids = None, None
     pipe.cached_prompt, pipe.cached_txt_ids = None, None
 
-    if isinstance(config.use_prompt, str):
+    if isinstance(config.use_prompt, str) and config.use_cached_prompt:
         logging.info('Caching prompt.')
         pipe.text_encoder = pipe.text_encoder.to(config.device)
         pipe.cached_prompt, pipe.cached_txt_ids = get_prompt_embeds_txt_ids(pipe,
@@ -421,13 +434,14 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
 
     if isinstance(config.teacher_use_prompt, str):
         logging.info('Caching prompt for our teacher.')
-        if not pipe.cached_prompt is None:
+        if not pipe.cached_prompt is None or not config.use_cached_prompt:
             pipe.text_encoder = pipe.text_encoder.to(config.device)
         pipe.cached_teacher_prompt, pipe.cached_teacher_txt_ids = get_prompt_embeds_txt_ids(pipe,
                                                                                             config.teacher_use_prompt,
                                                                                             config.device,
                                                                                             dtype=dtype,)
-    del pipe.text_encoder
+    if config.use_cached_prompt:
+        del pipe.text_encoder
     torch.cuda.empty_cache()
 
     pipe.transformer = add_single_stream_embedding_adapter(pipe.transformer)

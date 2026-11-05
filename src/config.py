@@ -34,7 +34,7 @@ class Config:
     quantize_model: bool = False
 
     ### Hparams
-    batch_size: int = 8
+    batch_size: int = 1
 
     # TODO add lr scheduler params here (right now: lower to .1 in 100 steps)
     lr: float = 1e-4
@@ -44,6 +44,8 @@ class Config:
 
     n_inference_steps: int = 40
 
+    # either use the cached prompt or the prompts from the data
+    use_cached_prompt: bool = False
     # mainly acts as attention sink, keeping in-domain
     use_prompt: str = 'The scene.'
     # teacher gives the input image back in most cases

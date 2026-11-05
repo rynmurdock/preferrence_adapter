@@ -133,7 +133,7 @@ class SemanticEmbedsKlein(torch.nn.Module):
         # following i1 (https://arxiv.org/abs/2606.11289)
         #   for reasonable depth+1
 
-        self.in_linear = torch.nn.Linear(768, 512)
+        self.in_linear = torch.nn.Linear(7680, 512)
         self.out_linear = torch.nn.Linear(512, out_dim)
         self.score_embedder = ScoreEmbedding()
         self.siglip_adapter = torch.nn.Sequential(
