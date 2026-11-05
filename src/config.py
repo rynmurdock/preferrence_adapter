@@ -23,6 +23,7 @@ class Config:
     sigma_mu: float = 3.03
     fp32_training: bool = True
     lora_rank: int = 0
+
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
     # just_inf_timesteps will automatically already shift, 
@@ -41,7 +42,6 @@ class Config:
 
     # TODO add conditioning dropout rate
     #   and val guidance scale
-
     n_inference_steps: int = 40
 
     # either use the cached prompt or the prompts from the data
@@ -55,7 +55,7 @@ class Config:
     ### Training
     epochs: int = 3000000000000
     max_steps: int = 1_000_000
-    max_val_steps: int = 128
+    max_val_steps: int = 8
 
     # this may break with LoRA teacher switching on/off
     # NOTE: running sans compile after reloading a ckpt may lead to an OOM
@@ -72,7 +72,7 @@ class Config:
     val_data_path: str = '../preferrence-set-to-x/PAMELA/annotations/pamela_val_unseen.json'
     num_workers: int = 20
     # width & height side lengths
-    resolution: tuple[int, int] = (512, 512)
+    resolution: tuple[int, int] = (128, 128)
 
     ### Logging
     exp_name: str = None
@@ -80,10 +80,15 @@ class Config:
     freq: int = 1000 # how often we save/log/etc.
 
     # persona validation (src/metrics/persona_suite.py) at every validation; an empty list turns it off
-    val_personas: list = field(default_factory=lambda: ['c06_food', 'c09_cinematic', 'c03_abstract'])
-    # TODO seeing identical outputs on these panels, so wonder if it may be seeding is broken?
+    val_personas: list = field(default_factory=lambda: [])
+    # 'c06_food', 'c09_cinematic', 'c03_abstract'
     val_seeds: list = field(default_factory=lambda: [0, 1, ])
     val_tests: list = field(default_factory=lambda: ['T1'])
+
+
+
+
+
 
     def to_json(self, filename):
         # we don't want to mutate our actual class

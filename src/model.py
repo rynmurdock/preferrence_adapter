@@ -352,12 +352,10 @@ class Zoo(torch.nn.Module):
                         step_n=step_n)
             return sum(losses) / len(losses), qual_images
 
-
+@torch.no_grad()
 def get_prompt_embeds_txt_ids(pipe, prompt, device, dtype=torch.float32):
-    pipe.text_encoder.to(device)
     p, t_ids = pipe.encode_prompt(prompt=prompt, device=device,)
     p, t_ids = p.to(device, dtype), t_ids.to(device, dtype)
-    pipe.text_encoder.to('cpu')
     return p, t_ids
 
 def add_lora(transformer, rank, target_modules):
@@ -371,7 +369,6 @@ def add_lora(transformer, rank, target_modules):
     logging.info(f"""trainable params: 
                  {transformer.num_parameters(only_trainable=True)} 
                  || all params: {transformer.num_parameters()}""")
-
 
 @torch.no_grad()
 def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
