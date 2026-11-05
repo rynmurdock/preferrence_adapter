@@ -13,7 +13,6 @@ class Config:
     ### Model
     # model_path = None
     transformer_model_path = 'black-forest-labs/FLUX.2-klein-base-4B'
-    # load_path = '/home/ryn_mote/Misc/preferrence-adapter/logs/cautioned_Quimper_Namen/27000_ckpt/'
     load_path = None
 
     seed: int = 14
@@ -64,6 +63,8 @@ class Config:
 
     # specifically for *mixed precision*
     # we parse torch dtypes to str on saving & then back on loading for simplicity
+
+    # TODO mixing fp32 & bfloat16 here...
     dtype: torch.dtype = field(default=torch.bfloat16, repr=False)
     activation_checkpointing: bool = True
 
@@ -80,8 +81,7 @@ class Config:
     freq: int = 5000 # how often we save/log/etc.
 
     # persona validation (src/metrics/persona_suite.py) at every validation; an empty list turns it off
-    val_personas: list = field(default_factory=lambda: [])
-    # 'c06_food', 'c09_cinematic', 'c03_abstract'
+    val_personas: list = field(default_factory=lambda: ['c06_food', 'c09_cinematic', 'c03_abstract'])
     val_seeds: list = field(default_factory=lambda: [0, 1, ])
     val_tests: list = field(default_factory=lambda: ['T1'])
 

@@ -227,7 +227,7 @@ class Zoo(torch.nn.Module):
     @torch.no_grad()
     def inference(self, 
                   embeds, 
-                  guidance_scale=1.5,
+                  guidance_scale=5,
                   width_height=None, 
                   generator=None,
                   n_inference_steps=4,
@@ -258,7 +258,7 @@ class Zoo(torch.nn.Module):
         return image
 
     @torch.no_grad()
-    def do_qual_val(self, pref_history_images, guidance_scale=1.5, 
+    def do_qual_val(self, pref_history_images, guidance_scale=5, 
                     sample_scores: list[list] = None, target_scores: list = None, 
                     save_images=False, n_inference_steps=50, seeds=None,
                     step_n=None, use_diff_neg=False, text_prompt='A green dog.'):

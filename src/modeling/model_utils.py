@@ -156,8 +156,11 @@ class SemanticEmbedsKlein(torch.nn.Module):
         if not vanilla_forward:
             # single stream over enc hidden states (semantic embeddings)
             txt_ids = kwargs['txt_ids']
-            sem_emb_rotary_embeds = self.orig_transformer.pos_embed(txt_ids)
-            hidden_states = self.in_linear(kwargs['encoder_hidden_states'].to(self.in_linear.weight.dtype))
+
+            # we're juggling from text embeddings + pref embeddings -> just pref embeddings
+            sem_emb_rotary_embeds = self.orig_transformer.pos_embed(txt_ids[:, -self.k-1:])
+            sem_states = kwargs['encoder_hidden_states'][:, -self.k-1:]
+            hidden_states = self.in_linear(sem_states.to(self.in_linear.weight.dtype))
             for a in self.adapter:
                 hidden_states = a(
                     hidden_states=hidden_states,
@@ -166,6 +169,10 @@ class SemanticEmbedsKlein(torch.nn.Module):
                     # joint_attention_kwargsq={'attention_mask': prompt_embeds_attn_mask},
                     )
             hidden_states = self.out_linear(hidden_states)
+            # then we put the semantic embeddings back after the text embeddings 
+            #   once we've done processing by the adapter
+            kwargs['encoder_hidden_states'][:, -self.k-1:] = hidden_states
+            hidden_states = kwargs['encoder_hidden_states']
 
             # prepend our cached text prompt
             if not cached_prompt is None:
