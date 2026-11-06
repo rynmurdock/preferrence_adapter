@@ -49,13 +49,15 @@ def get_loss(model, batch, images, config, dtype=None,):
     dtype = model.dtype if not dtype else dtype
     with torch.no_grad():
         # rng drop out inputs by sample
-        zeroing_mask = torch.rand((embeds.shape[0],)) < .1
-        embeds[zeroing_mask] = 0
+        keep = (torch.rand((embeds.shape[0],)) >= .1)[:, None]
 
         # rng drop out inputs by token
         # TODO decide on good options for long-tail low image counts
-        zeroing_mask = torch.rand((embeds.shape[0], embeds.shape[1])) < .2
-        embeds[zeroing_mask] = 0
+        keep = keep & (torch.rand((embeds.shape[0], embeds.shape[1])) >= .2)
+        # zero out of place: autograd does not see an in-place write under no_grad,
+        #   so dropped tokens kept sending gradient back into the adapter
+        with torch.enable_grad():
+            embeds = embeds * keep[..., None].to(embeds.device, embeds.dtype)
 
         # now we do no masking on embeddings: we just pad to max
         prompt_embeds_attn_mask = torch.ones_like(
@@ -165,7 +167,7 @@ class Zoo(torch.nn.Module):
         if scores.ndim < 2:
             scores = scores[None]
 
-        embeds = self.pipe.transformer.siglip_adapter(embeds)
+        # SigLIP now reaches in_linear directly
         embeds = embeds + self.pipe.transformer.score_embedder(scores)
 
         neg_scores = torch.ones_like(scores.clone())
@@ -185,7 +187,7 @@ class Zoo(torch.nn.Module):
                                                                     output_hidden_states=True,
                                                                     ).hidden_states[-2].mean(-2)
             # TODO citation for using intermediate not last
-            embeds = torch.nn.functional.normalize(embeds, dim=-1)
+            embeds = torch.nn.functional.normalize(embeds, dim=-1) * 768 ** 0.5  # norm sqrt(768)
             embeds_batch.append(embeds)
         embeds_batch = torch.stack(embeds_batch)
         return embeds_batch

@@ -167,17 +167,18 @@ class SemanticEmbedsKlein(torch.nn.Module):
                     )
             hidden_states = self.out_linear(hidden_states)
 
-            # prepend our cached text prompt
+            # place our tokens in the full cached prompt context 'cause cutting the prompt to 32 tokens breaks persona learning
             if not cached_prompt is None:
-                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :32], 
-                    hidden_states], 1)
-                # TODO `x+self.k+1`: x is our cached prompt truncation; don't hardcodeq
-                kwargs['txt_ids'] = self.cached_txt_ids[:, :32+self.k+1]
+                start = 15  # first position after the tokens of 'The scene.'
+                full = cached_prompt.repeat(len(hidden_states), 1, 1).to(hidden_states.dtype).clone()
+                full[:, start:start + hidden_states.shape[1]] = hidden_states
+                kwargs['txt_ids'] = self.cached_txt_ids
                 if not kwargs['joint_attention_kwargs'] is None:
                     att_mask = kwargs['joint_attention_kwargs']['attention_mask']
-                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :32] > 0, 
-                        att_mask], 1)
-                    kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
+                    n, ones = hidden_states.shape[1], torch.ones_like(att_mask)  # att_mask: [our tokens | image tokens]
+                    kwargs['joint_attention_kwargs']['attention_mask'] = torch.cat(
+                        [ones[:, :start] > 0, att_mask[:, :n], ones[:, :full.shape[1] - start - n] > 0, att_mask[:, n:]], 1)
+                hidden_states = full
             kwargs['encoder_hidden_states'] = hidden_states
 
         if 'vanilla_forward' in kwargs: kwargs.pop('vanilla_forward')
