@@ -165,7 +165,7 @@ class Zoo(torch.nn.Module):
         if scores.ndim < 2:
             scores = scores[None]
 
-        embeds = self.pipe.transformer.siglip_adapter(embeds)
+        # SigLIP now reaches in_linear directly
         embeds = embeds + self.pipe.transformer.score_embedder(scores)
 
         neg_scores = torch.ones_like(scores.clone())
@@ -185,7 +185,7 @@ class Zoo(torch.nn.Module):
                                                                     output_hidden_states=True,
                                                                     ).hidden_states[-2].mean(-2)
             # TODO citation for using intermediate not last
-            embeds = torch.nn.functional.normalize(embeds, dim=-1)
+            embeds = torch.nn.functional.normalize(embeds, dim=-1) * 768 ** 0.5  # norm sqrt(768)
             embeds_batch.append(embeds)
         embeds_batch = torch.stack(embeds_batch)
         return embeds_batch
