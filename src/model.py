@@ -165,7 +165,6 @@ class Zoo(torch.nn.Module):
         if scores.ndim < 2:
             scores = scores[None]
 
-        embeds = self.pipe.transformer.siglip_adapter(embeds)
         embeds = embeds + self.pipe.transformer.score_embedder(scores)
 
         neg_scores = torch.ones_like(scores.clone())
@@ -190,7 +189,7 @@ class Zoo(torch.nn.Module):
                                                                     output_hidden_states=True,
                                                                     ).hidden_states[-2].mean(-2)
             # TODO citation for using intermediate not last
-            embeds = torch.nn.functional.normalize(embeds, dim=-1)
+            embeds = torch.nn.functional.normalize(embeds, dim=-1) * 768 ** 0.5  # norm sqrt(768
             embeds_batch.append(embeds)
         embeds_batch = torch.stack(embeds_batch)
         return embeds_batch
@@ -220,7 +219,8 @@ class Zoo(torch.nn.Module):
                 prompt_embeds_attn_mask=prompt_embeds_attn_mask,
                 return_dict=False,
                 vanilla_forward=vanilla_forward,
-                cached_prompt=self.pipe.cached_prompt,
+                # should already be None, but forcing if we don't cache a prompt
+                cached_prompt=self.pipe.cached_prompt if self.config.use_cached_prompt else None,
         )[0]
         return velocity
 
@@ -323,7 +323,7 @@ class Zoo(torch.nn.Module):
         scores = torch.cat([batch['target_scores'], batch['sample_scores']], 1)
         embeds, _ = self.enrich_with_preference_embedding(embeds, scores)
 
-        text_embeds, _ = get_prompt_embeds_txt_ids(self.pipe, batch['sample_prompts'], embeds.device, dtype=embeds.dtype)
+        text_embeds, _ = get_prompt_embeds_txt_ids(self.pipe, batch['input_prompts'], embeds.device, dtype=embeds.dtype)
         # concatenate our preference embeds, truncate our text embeds to have 512 length
         embeds = torch.cat((text_embeds[:, :512-embeds.shape[1]], embeds), 1)
         return embeds
@@ -439,6 +439,7 @@ def get_model_and_tokenizer(path, device, dtype, seed, do_compile, config):
                                                                                             dtype=dtype,)
     if config.use_cached_prompt:
         del pipe.text_encoder
+        
     torch.cuda.empty_cache()
 
     pipe.transformer = add_single_stream_embedding_adapter(pipe.transformer)

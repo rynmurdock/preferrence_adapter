@@ -19,9 +19,9 @@ class Config:
     # number of conditioning sample images with scores
     k: int = 32
 
-    sigma_mu: float = 3.03
+    sigma_mu: float = None
     fp32_training: bool = True
-    lora_rank: int = 0
+    lora_rank: int = False
 
     sample_teacher: bool = False
     just_inf_timesteps: bool = False
@@ -78,7 +78,7 @@ class Config:
     ### Logging
     exp_name: str = None
     save_path: str = './'
-    freq: int = 5000 # how often we save/log/etc.
+    freq: int = 500 # how often we save/log/etc.
 
     # persona validation (src/metrics/persona_suite.py) at every validation; an empty list turns it off
     val_personas: list = field(default_factory=lambda: ['c06_food', 'c09_cinematic', 'c03_abstract'])

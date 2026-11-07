@@ -136,12 +136,6 @@ class SemanticEmbedsKlein(torch.nn.Module):
         self.in_linear = torch.nn.Linear(7680, 512)
         self.out_linear = torch.nn.Linear(512, out_dim)
         self.score_embedder = ScoreEmbedding()
-        self.siglip_adapter = torch.nn.Sequential(
-                                torch.nn.LayerNorm(768),
-                                torch.nn.Linear(768, 768),
-                                torch.nn.SiLU(),
-                                torch.nn.Linear(768, 768),
-                                torch.nn.Linear(768, 768),)
         
         # with torch.no_grad():
         #     torch.nn.init.normal_(self.siglip_adapter[-1].weight, std=1)
@@ -178,13 +172,15 @@ class SemanticEmbedsKlein(torch.nn.Module):
             if not cached_prompt is None:
                 hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :32], 
                     hidden_states], 1)
-                # TODO `x+self.k+1`: x is our cached prompt truncation; don't hardcodeq
+                # TODO `x+self.k+1`: x is our cached prompt truncation; don't hardcode
+                # TODO pull back in 512 is necessary
                 kwargs['txt_ids'] = self.cached_txt_ids[:, :32+self.k+1]
                 if not kwargs['joint_attention_kwargs'] is None:
                     att_mask = kwargs['joint_attention_kwargs']['attention_mask']
                     att_mask = torch.cat([torch.ones_like(att_mask)[:, :32] > 0, 
                         att_mask], 1)
                     kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
+            
             kwargs['encoder_hidden_states'] = hidden_states
 
         if 'vanilla_forward' in kwargs: kwargs.pop('vanilla_forward')
