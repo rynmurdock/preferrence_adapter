@@ -152,34 +152,37 @@ class SemanticEmbedsKlein(torch.nn.Module):
             txt_ids = kwargs['txt_ids']
 
             # we're juggling from text embeddings + pref embeddings -> just pref embeddings
-            sem_emb_rotary_embeds = self.orig_transformer.pos_embed(txt_ids[:, -self.k-1:])
-            sem_states = kwargs['encoder_hidden_states'][:, -self.k-1:]
-            hidden_states = self.in_linear(sem_states.to(self.in_linear.weight.dtype))
+            sem_emb_rotary_embeds = self.orig_transformer.pos_embed(txt_ids[:, :self.k+1])
+            sem_states = kwargs['encoder_hidden_states'][:, :self.k+1]
+            sem_states = self.in_linear(sem_states.to(self.in_linear.weight.dtype))
             for a in self.adapter:
-                hidden_states = a(
-                    hidden_states=hidden_states,
+                sem_states = a(
+                    hidden_states=sem_states,
                     rotary_emb=sem_emb_rotary_embeds, 
                     # NOTE we're just padding to max & seeing all
-                    # joint_attention_kwargsq={'attention_mask': prompt_embeds_attn_mask},
+                    # joint_attention_kwargs={'attention_mask': prompt_embeds_attn_mask},
                     )
-            hidden_states = self.out_linear(hidden_states)
+            sem_states = self.out_linear(sem_states)
+
             # then we put the semantic embeddings back after the text embeddings 
             #   once we've done processing by the adapter
-            kwargs['encoder_hidden_states'][:, -self.k-1:] = hidden_states
+            kwargs['encoder_hidden_states'][:, :self.k+1] = sem_states
             hidden_states = kwargs['encoder_hidden_states']
 
-            # prepend our cached text prompt
-            if not cached_prompt is None:
-                hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :32], 
-                    hidden_states], 1)
-                # TODO `x+self.k+1`: x is our cached prompt truncation; don't hardcode
-                # TODO pull back in 512 is necessary
-                kwargs['txt_ids'] = self.cached_txt_ids[:, :32+self.k+1]
-                if not kwargs['joint_attention_kwargs'] is None:
-                    att_mask = kwargs['joint_attention_kwargs']['attention_mask']
-                    att_mask = torch.cat([torch.ones_like(att_mask)[:, :32] > 0, 
-                        att_mask], 1)
-                    kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
+            # TODO update to always-512 version
+            
+            # # prepend our cached text prompt
+            # if not cached_prompt is None:
+            #     hidden_states = torch.cat([cached_prompt.repeat(len(hidden_states), 1, 1)[:, :32], 
+            #         hidden_states], 1)
+            #     # TODO `x+self.k+1`: x is our cached prompt truncation; don't hardcode
+            #     # TODO pull back in 512 is necessary
+            #     kwargs['txt_ids'] = self.cached_txt_ids[:, :32+self.k+1]
+            #     if not kwargs['joint_attention_kwargs'] is None:
+            #         att_mask = kwargs['joint_attention_kwargs']['attention_mask']
+            #         att_mask = torch.cat([torch.ones_like(att_mask)[:, :32] > 0, 
+            #             att_mask], 1)
+            #         kwargs['joint_attention_kwargs']['attention_mask'] = att_mask
             
             kwargs['encoder_hidden_states'] = hidden_states
 

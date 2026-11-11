@@ -58,7 +58,7 @@ class Config:
 
     # this may break with LoRA teacher switching on/off
     # NOTE: running sans compile after reloading a ckpt may lead to an OOM
-    do_compile: bool = True
+    do_compile: bool = False
     device: str = 'cuda:0'
 
     # specifically for *mixed precision*

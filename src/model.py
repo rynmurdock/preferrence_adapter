@@ -173,7 +173,7 @@ class Zoo(torch.nn.Module):
         diff_neg_embeds = embeds + self.pipe.transformer.score_embedder(neg_scores)
 
         # pad so we can directly concat with our text embeddings now
-        embeds = torch.nn.functional.pad(embeds, (7680-embeds.shape[-1], 0))
+        embeds = torch.nn.functional.pad(embeds, (7680-embeds.shape[-1], 0),)
         diff_neg_embeds = torch.nn.functional.pad(diff_neg_embeds, 
                                                   (7680-diff_neg_embeds.shape[-1], 0))
         return embeds, diff_neg_embeds
@@ -289,10 +289,10 @@ class Zoo(torch.nn.Module):
         # NOTE we're just padding to max & seeing all
         if semantic_embeds.shape[1] < self.config.k:
             semantic_embeds = torch.nn.functional.pad(
-                semantic_embeds, (0, 0, 0, self.config.k - semantic_embeds.shape[1] + 1))
+                semantic_embeds, (0, 0, 0, self.config.k + 1 - semantic_embeds.shape[1]))
         text_embeds, _ = get_prompt_embeds_txt_ids(self.pipe, text_prompt, semantic_embeds.device, dtype=semantic_embeds.dtype)
         # concatenate our preference embeds, truncate our text embeds to have 512 length
-        semantic_embeds = torch.cat((text_embeds[:, :512-semantic_embeds.shape[1]], semantic_embeds), 1)
+        semantic_embeds = torch.cat((semantic_embeds, text_embeds, ), 1)
 
         if seeds is None:
             seeds = [self.seed, self.seed+1]
@@ -325,7 +325,7 @@ class Zoo(torch.nn.Module):
 
         text_embeds, _ = get_prompt_embeds_txt_ids(self.pipe, batch['input_prompts'], embeds.device, dtype=embeds.dtype)
         # concatenate our preference embeds, truncate our text embeds to have 512 length
-        embeds = torch.cat((text_embeds[:, :512-embeds.shape[1]], embeds), 1)
+        embeds = torch.cat((embeds, text_embeds, ), 1)
         return embeds
 
     @torch.no_grad()
